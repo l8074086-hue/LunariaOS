@@ -31,7 +31,8 @@ For QEMU headless run:
 ```make
 make headless
 ```
-- # Note that workspace switching via ctrl + number keys may not work well in headless mode
+> [!NOTE ]
+> Note that workspace switching via ctrl + number keys may not work well in headless mode
 
 ## Project status
 
