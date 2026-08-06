@@ -1,0 +1,22 @@
+- [ ] kprintf — printf-style formatted output for debugging
+- [ ] Serial output (COM1) — debugging without VGA
+- [ ] Terminal struct and abstraction
+- [ ] PIT timer (IRQ0) — needed for blinking cursor, sleep, time tracking
+- [ ] Screen wrapping/insertion mode decisions (overwrite vs insert)
+- [ ] Memory detection (E820) and a simple physical memory manager
+- [ ] Proper bootloader cleanup (LBA reads, load at higher half)
+- [ ] Caps Lock / modifier handling beyond shift
+- [ ] Non-blocking kbd_getc + key buffer (ring buffer queue)
+- [ ] GDT cleanup — TSS for interrupts/syscalls, proper segment setup
+- [ ] Higher-half kernel — remap kernel to 0xC0000000+ so user space owns low memory
+- [ ] Paging + virtual memory — prerequisite for isolating processes
+- [ ] Multitasking / scheduler — after PIT + interrupts
+- [ ] Syscalls — boundary between kernel and user programs
+- [ ] ELF loader — to run compiled user binaries
+- [ ] GDB debugging — QEMU GDB stub (-s -S)
+- [x] disk driver 
+- [x] Interrupt based keyboard driver
+- [x] Tests — headless QEMU + assert on VGA memory
+- [x] Filesystem (FAT32 is classic) — booting from raw sectors limits loading programs
+- [x] Text scrolling when the cursor hits the bottom row
+- [x] IDT + exception handlers
