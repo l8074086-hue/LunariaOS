@@ -104,5 +104,13 @@ headless: $(DISK_IMG)
 	-pkill qemu 2>/dev/null
 	qemu-system-x86_64 -display curses -monitor none -no-reboot -drive format=raw,file=$(DISK_IMG)
 
+release: $(DISK_IMG) $(BUILD_DIR)/OS.bin
+	@mkdir -p release
+	@cp $(DISK_IMG) $(BUILD_DIR)/OS.bin run.sh release/
+	@chmod +x release/run.sh
+	@tar -czf lunariaos-$(shell git describe --tags --always 2>/dev/null || echo dev).tar.gz -C release disk.img OS.bin run.sh
+	@rm -rf release
+	@echo "created lunariaos-*.tar.gz"
+
 clean:
 	rm -rf $(BUILD_DIR)

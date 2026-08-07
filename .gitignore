@@ -2,4 +2,4 @@ bin/
 *.o
 a.out
 cat.sh
-
+docs.sh

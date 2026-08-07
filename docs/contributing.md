@@ -1,4 +1,4 @@
-# Contr999999g to LunariaOS
+# Contributing to LunariaOS
 
 Thanks for wanting to help! This page covers how the project is organized,
 how to build it, and how to add code without breaking the build.
