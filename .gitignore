@@ -3,3 +3,4 @@ bin/
 a.out
 cat.sh
 docs.sh
+releases/
