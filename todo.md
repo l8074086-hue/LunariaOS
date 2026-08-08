@@ -1,6 +1,5 @@
 - [ ] kprintf — printf-style formatted output for debugging
 - [ ] Serial output (COM1) — debugging without VGA
-- [ ] PIT timer (IRQ0) — needed for blinking cursor, sleep, time tracking
 - [ ] Screen wrapping/insertion mode decisions (overwrite vs insert)
 - [ ] Memory detection (E820) and a simple physical memory manager
 - [ ] Proper bootloader cleanup (LBA reads, load at higher half)
@@ -12,6 +11,7 @@
 - [ ] ELF loader — to run compiled user binaries
 - [ ] GDB debugging — QEMU GDB stub (-s -S)
 - [x] Caps Lock / modifier handling beyond shift
+- [x] PIT timer (IRQ0) — needed for blinking cursor, sleep, time tracking
 - [x] Syscalls — boundary between kernel and user programs
 - [x] Terminal struct and abstraction
 - [x] disk driver 
