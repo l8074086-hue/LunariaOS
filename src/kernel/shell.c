@@ -54,7 +54,7 @@ static void cmd_help(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    term_print_color(wm_current(), "Available Commands:\n  help\n  clear\n  echo\n  read\n  ls\n  cat\n  rm\n  mkdir\n  run\n  exit\n", VGA_COLOR(BLACK, WHITE));
+    term_print_color(wm_current(), "Available Commands:\n  help\n  clear\n  echo\n  read\n  ls\n  cat\n  rm\n  mkdir\n  run\n  uptime\n  sleep\n  halt\n  exit\n", VGA_COLOR(BLACK, WHITE));
 
 }
 
@@ -162,6 +162,9 @@ static void cmd_halt(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
+    __asm__ volatile("cli");
+    for (;;)
+        __asm__ volatile("hlt");
 }
 
 static void cmd_exit(int argc, char **argv)
