@@ -57,7 +57,7 @@ $(BUILD_DIR)/prog_%.elf: $(BUILD_DIR)/prog_%.o src/home/prog.ld | $(BUILD_DIR)
 $(BUILD_DIR)/prog_%.bin: $(BUILD_DIR)/prog_%.elf | $(BUILD_DIR)
 	$(OBJCOPY) -O binary $< $@
 
-$(BUILD_DIR)/kernel.elf: $(BUILD_DIR)/entry.o $(BUILD_DIR)/kernel.o $(BUILD_DIR)/vga.o $(BUILD_DIR)/keyboard.o $(BUILD_DIR)/ata.o $(BUILD_DIR)/idt.o $(BUILD_DIR)/isr.o $(BUILD_DIR)/shell.o $(BUILD_DIR)/wm.o $(BUILD_DIR)/fs.o $(BUILD_DIR)/gdt.o $(BUILD_DIR)/syscall.o | $(BUILD_DIR)
+$(BUILD_DIR)/kernel.elf: $(BUILD_DIR)/entry.o $(BUILD_DIR)/kernel.o $(BUILD_DIR)/vga.o $(BUILD_DIR)/keyboard.o $(BUILD_DIR)/ata.o $(BUILD_DIR)/idt.o $(BUILD_DIR)/isr.o $(BUILD_DIR)/shell.o $(BUILD_DIR)/wm.o $(BUILD_DIR)/fs.o $(BUILD_DIR)/gdt.o $(BUILD_DIR)/syscall.o $(BUILD_DIR)/pit.o | $(BUILD_DIR)
 	$(LD) $(LDFLAGS) -o $@ $^
 
 $(BUILD_DIR)/entry.o: $(KERNEL_DIR)/entry.asm | $(BUILD_DIR)
@@ -82,6 +82,9 @@ $(BUILD_DIR)/vga.o: $(SRC_DIR)/drivers/vga.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/keyboard.o: $(SRC_DIR)/drivers/keyboard.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/pit.o: $(SRC_DIR)/drivers/pit.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/ata.o: $(SRC_DIR)/drivers/ata.c | $(BUILD_DIR)

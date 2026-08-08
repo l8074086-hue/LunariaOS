@@ -1,7 +1,9 @@
 #include <stdint.h>
 #include "port.h"
 #include "keyboard.h"
+#include "pit.h"
 
+extern void isr0x20(void);
 extern void isr0x21(void);
 extern void isr0x80(void);
 extern void isrfault0x0D(void);
@@ -34,6 +36,8 @@ void set_gate(int vector, uint32_t addr, int dpl, int trap)
 
 void isr_common_handler(int vector)
 {
+  if (vector == 0x20)
+    pit_handler();
   if (vector == 0x21)
     keyboard_handler();
   __asm__ volatile("outb %0, %1" : : "a"((char)0x20), "Nd"((short)0x20));
@@ -45,11 +49,12 @@ void idt_init(void)
   outb(0x21, 0x20); outb(0xA1, 0x28);
   outb(0x21, 0x04); outb(0xA1, 0x02);
   outb(0x21, 0x01); outb(0xA1, 0x01);
-  outb(0x21, 0xFD); outb(0xA1, 0xFF);
+  outb(0x21, 0xFC); outb(0xA1, 0xFF);
 
   for (int i = 0; i < 256; i++)
     set_gate(i, (uint32_t)isr_dummy, 0, 0);
 
+  set_gate(0x20, (uint32_t)isr0x20, 0, 0);
   set_gate(0x21, (uint32_t)isr0x21, 0, 0);
   set_gate(0x0D, (uint32_t)isrfault0x0D, 0, 0);
   set_gate(0x0E, (uint32_t)isrfault0x0E, 0, 0);

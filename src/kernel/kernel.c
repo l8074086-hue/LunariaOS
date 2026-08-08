@@ -4,6 +4,7 @@
 #include "string.h"
 #include "fs.h"
 #include "wm.h"
+#include "pit.h"
 
 extern void idt_init(void);
 extern void gdt_init(void);
@@ -13,6 +14,7 @@ void kmain(void)
 {
     gdt_init();
     idt_init();
+    pit_init(100);
     __asm__ volatile("sti");
 
     vga_init();

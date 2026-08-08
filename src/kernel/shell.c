@@ -6,6 +6,7 @@
 #include "fs.h"
 #include "wm.h"
 #include "user.h"
+#include "pit.h"
 
 #define CMD_BUF_SIZE 128
 #define MAX_ARGS 16
@@ -20,13 +21,15 @@ static void cmd_help(int argc, char **argv);
 static void cmd_clear(int argc, char **argv);
 static void cmd_echo(int argc, char **argv);
 static void cmd_read(int argc, char **argv);
-static void cmd_halt(int argc, char **argv);
 static void cmd_exit(int argc, char **argv);
+static void cmd_halt(int argc, char **argv);
 static void cmd_ls(int argc, char **argv);
 static void cmd_cat(int argc, char **argv);
 static void cmd_rm(int argc, char **argv);
 static void cmd_mkdir(int argc, char **argv);
 static void cmd_run(int argc, char **argv);
+static void cmd_uptime(int argc, char **argv);
+static void cmd_sleep(int argc, char **argv);
 
 static const struct command commands[] = {
     { "help", cmd_help },
@@ -34,11 +37,14 @@ static const struct command commands[] = {
     { "echo", cmd_echo },
     { "read", cmd_read },
     { "exit", cmd_exit },
+    { "halt", cmd_halt },
     { "ls", cmd_ls },
     { "cat", cmd_cat },
     { "rm", cmd_rm },
     { "mkdir", cmd_mkdir },
     { "run", cmd_run },
+    { "uptime", cmd_uptime },
+    { "sleep", cmd_sleep },
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);
@@ -105,6 +111,25 @@ static void cmd_run(int argc, char **argv)
     wm_current()->prompt = 0;
     kbd_flush();
     enter_user(USER_BASE, USER_STACK);
+}
+
+static void cmd_uptime(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    char buf[12];
+    itoa(pit_uptime_sec(), buf);
+    term_print_color(wm_current(), "uptime: ", VGA_COLOR(BLACK,WHITE));
+    term_print_color(wm_current(), buf, VGA_COLOR(BLACK, YELLOW));
+    term_print_color(wm_current(), " seconds\n", VGA_COLOR(BLACK,WHITE));
+}
+
+static void cmd_sleep(int argc, char **argv)
+{
+    if (argc > 1)
+    {
+        pit_sleep(atoi(argv[1]));
+    }
 }
 
 void shell_run(void);
