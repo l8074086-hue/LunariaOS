@@ -7,6 +7,7 @@ void vga_init(void);
 void clear(color_t color);
 void putchar(char c, color_t color);
 void print(const char *str, color_t color);
+void print_banner(color_t color);
 void bkspc(void);
 void block_show(void);
 void block_hide(void);

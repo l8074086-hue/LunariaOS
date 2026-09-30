@@ -1,4 +1,5 @@
 #include "vga.h"
+#include "wm.h"
 #include "port.h"
 
 static volatile char *VGA = (char *)0xb8000;
@@ -129,7 +130,16 @@ void print(const char *str, color_t color)
     }
 }
 
-void bkspc(void) 
+void print_banner(color_t color)
+{
+
+        term_print_color(wm_current(), "   __                      _      ____  ____\n", VGA_COLOR(BLACK, color));
+        term_print_color(wm_current(), "  / /  __ _____  ___ _____(_)__ _/ __ \\/ __/\n", VGA_COLOR(BLACK, color));
+        term_print_color(wm_current(), " / /__/ // / _ \\/ _ `/ __/ / _ `/ /_/ /\\ \\  \n", VGA_COLOR(BLACK,color));
+        term_print_color(wm_current(), "/____/\\_,_/_//_/\\_,_/_/ /_/\\_,_/\\____/___/  \n", VGA_COLOR(BLACK,color));
+}
+
+void bkspc(void)
 {
     if (cursor_x == 0 && cursor_y == 0)
     {
@@ -139,7 +149,7 @@ void bkspc(void)
     {
         cursor_x--;
     }
-    else 
+    else
     {
         cursor_y--;
         cursor_x = 79;
@@ -149,7 +159,7 @@ void bkspc(void)
     putchar_at(' ', cursor_x, cursor_y, VGA[index * 2 + 1]);
 }
 
-void showCursor(void) 
+void showCursor(void)
 {
 
 }

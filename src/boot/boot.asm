@@ -25,6 +25,36 @@ start:
     int 0x13
 
     jc disk_error
+    ; --- E820 ---
+    E820_BUF equ 0x5000
+    E820_COUNT equ 0x4FFC
+    E820_MAX equ 32
+
+    detect_mem:
+      xor ax, ax
+      mov es, ax
+      mov di, E820_BUF
+      xor ebx, ebx
+      xor bp, bp
+      cld
+    .next:
+      mov eax, 0xE820
+      mov edx, 0x534D4150
+      mov ecx, 24
+      int 0x15
+      jc .done
+      cmp eax, 0x534D4150
+      jne .done
+      cmp ecx, 20
+      jb .done
+      add di, 24
+      inc bp
+      cmp bp, E820_MAX
+      jge .done
+      or ebx, ebx
+      jnz .next
+    .done:
+      mov [E820_COUNT], bp
 
     cli
     lgdt [gdt_descriptor]

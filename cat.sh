@@ -16,8 +16,10 @@ PATHS=(
     "$HOME/data/Projects/c/OS/src/kernel/shell.c"
     "$HOME/data/Projects/c/OS/src/kernel/wm.c"
     "$HOME/data/Projects/c/OS/src/headers/wm.h"
+    "$HOME/data/Projects/c/OS/src/drivers/pit.c"
+    "$HOME/data/Projects/c/OS/src/headers/pit.h"
     "$HOME/data/Projects/c/OS/Makefile"
-    "$HOME/data/Projects/c/OS/todo.md"
+    "$HOME/data/Projects/c/OS/todo.txt"
 
 )
 

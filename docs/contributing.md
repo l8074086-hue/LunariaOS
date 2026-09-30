@@ -106,7 +106,11 @@ copyleft is the point.
 
 ## What to work on
 
-`todo.md` in the repo root tracks planned work. The README also lists the
-feature set; good first tasks include implementing the PIT timer (the
-`0x20` ISR is currently a no-op stub), expanding the filesystem, or adding
-new user programs and syscalls.
+`todo.txt` in the repo root tracks planned work, one task per line as
+`(P) YYYY-MM-DD <what to do> +<Project> @<context>`, where `P` is a priority
+from `A` (blocking) to `E` (whenever). When a task is finished, move its line
+out of `todo.txt` into `done.txt` and prefix it with `x YYYY-MM-DD` in place
+of the priority. Keep items specific enough to act on — point at the file and
+function you mean. The README also lists the feature set; good first tasks
+include the `kprintf` and serial COM1 items, filling in the empty
+`showCursor()` stub, or adding new user programs and syscalls.

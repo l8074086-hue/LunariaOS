@@ -7,6 +7,7 @@
 #include "wm.h"
 #include "user.h"
 #include "pit.h"
+#include "memory.h"
 
 #define CMD_BUF_SIZE 128
 #define MAX_ARGS 16
@@ -30,6 +31,9 @@ static void cmd_mkdir(int argc, char **argv);
 static void cmd_run(int argc, char **argv);
 static void cmd_uptime(int argc, char **argv);
 static void cmd_sleep(int argc, char **argv);
+static void cmd_banner(int argc, char **argv);
+
+void shell_run_program(const char *name);
 
 static const struct command commands[] = {
     { "help", cmd_help },
@@ -45,6 +49,7 @@ static const struct command commands[] = {
     { "run", cmd_run },
     { "uptime", cmd_uptime },
     { "sleep", cmd_sleep },
+    { "banner", cmd_banner},
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);
@@ -86,7 +91,7 @@ static void cmd_mkdir(int argc, char **argv)
     {
         for (int i = 1; i < argc; i++)
         {
-            if (fs_mkdir(argv[i]) != 0) 
+            if (fs_mkdir(argv[i]) != 0)
             {
                 term_print_color(wm_current(), "mkdir: failed:", VGA_COLOR(BLACK, RED));
                 term_print_color(wm_current(), argv[i], VGA_COLOR(BLACK, RED));
@@ -103,11 +108,60 @@ static void cmd_run(int argc, char **argv)
         term_print_color(wm_current(), "usage: run <file>\n", VGA_COLOR(BLACK, RED));
         return;
     }
-    if (fs_read(argv[1], (char *)USER_BASE, USER_PROG_MAX) < 0)
+    shell_run_program(argv[1]);
+}
+
+void shell_run_program(const char *name)
+{
+    /* Build a private address space and switch to it *before* loading, so
+       the program image lands in pages this process will keep and a stale
+       one from a previous run cannot leak in. */
+    uint32_t dir = vm_create();
+    if (!dir)
     {
-        term_print_color(wm_current(), "run: not found or too big\n", VGA_COLOR(BLACK, RED));
+        term_print_color(wm_current(), "run: out of memory\n", VGA_COLOR(BLACK, RED));
         return;
     }
+    vm_attach(dir);
+
+#ifdef PAGER_TEST
+    {   /* TEMP: faulting copy, then show what vm_fault captured */
+        char b[12];
+        unsigned int vals[5];
+        vm_dbg[4] = vm_dbg[5] = vm_dbg[6] = vm_dbg[7] = 0xAAAAAAAA;
+        memcpy((void *)(USER_BASE + 0x2000), (void *)0x7E00, 512);
+        vals[0] = vm_dbg[0];
+        vals[1] = vm_dbg[1];
+        vals[2] = vm_dbg[2];
+        vals[3] = vm_dbg[3];
+        vals[4] = *(volatile unsigned int *)(USER_BASE + 0x2000);
+        terminal_t *t = wm_current();
+        for (int k = 0; k < 5; k++)
+        {
+            for (int i = 7; i >= 0; i--)
+            {
+                unsigned int d = vals[k] & 0xF;
+                b[i] = d < 10 ? (char)('0' + d) : (char)('A' + d - 10);
+                vals[k] >>= 4;
+            }
+            b[8] = 0;
+            term_print_color(t, k == 4 ? " dst0=" : " v=", VGA_COLOR(BLACK, CYAN));
+            term_print_color(t, b, VGA_COLOR(BLACK, CYAN));
+        }
+        term_print_color(t, "\n", VGA_COLOR(BLACK, CYAN));
+        wm_blit(t);
+    }
+#endif
+
+    int size = fs_read(name, (char *)USER_BASE, USER_PROG_MAX);
+    if (size < 0)
+    {
+        term_print_color(wm_current(), "run: not found or too big\n", VGA_COLOR(BLACK, RED));
+        vm_detach();
+        return;
+    }
+
+    vm_note_load((unsigned int)size);
     wm_current()->prompt = 0;
     kbd_flush();
     enter_user(USER_BASE, USER_STACK);
@@ -136,6 +190,9 @@ void shell_run(void);
 
 void exit_to_shell(void)
 {
+    /* reached from the iret in isr0x80, so the process directory is still
+       the active one: hand the CPU back to the kernel map and release it */
+    vm_detach();
     shell_run();
 }
 
@@ -188,9 +245,18 @@ static void cmd_ls(int argc, char **argv)
         fs_ls("");
 }
 
+static void cmd_banner(int argc, char **argv)
+{
+    if (argc == 1)
+    {
+        (void)argv;
+        print_banner(GREEN);
+    }
+}
+
 static void cmd_cat(int argc, char **argv)
 {
-    if (argc < 2) 
+    if (argc < 2)
     {
         term_print_color(wm_current(), "usage: cat <file>\n", VGA_COLOR(BLACK, RED));
         return;

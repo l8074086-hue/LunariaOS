@@ -1,0 +1,57 @@
+@paging — get virtual memory actually working and landed
+(A) 2026-09-28 confirm the E820 frame bitmap matches the BIOS map (memory.c) +LunariaOS @paging @projects @self
+(A) 2026-09-28 reserve _kernel_end and the bitmap's own pages in the PMM +LunariaOS @paging @projects @self
+(A) 2026-09-28 verify #PF → vm_fault(CR2) maps the page and retries the faulting instruction +LunariaOS @paging @projects @self
+(A) 2026-09-28 verify vm_sbrk grows the user heap past the loaded image +LunariaOS @paging @projects @self
+(A) 2026-09-28 verify the CR3 load in enter_user / vm_attach actually takes effect +LunariaOS @paging @projects @self
+(A) 2026-09-28 commit memory.c, memory.h and faultprobe.c once the above pass +LunariaOS @paging @projects @self
+(B) 2026-09-28 delete the bootloader's duplicate E820 scan or hand its table to the kernel (boot.asm:28-57) +LunariaOS @paging @projects @self
+@debug-output — get diagnostics out of the kernel at all
+(A) 2026-09-28 kprintf: %s and %c +LunariaOS @debug-output @projects @self
+(A) 2026-09-28 kprintf: %d %x %p with width and zero-pad +LunariaOS @debug-output @projects @self
+(A) 2026-09-28 route kprintf through term_print so windows and colors still work +LunariaOS @debug-output @projects @self
+(A) 2026-09-28 serial init on 0x3F8: divisor, 8N1, enable + clear the FIFOs +LunariaOS @debug-output @projects @self
+(A) 2026-09-28 mirror kprintf output to the serial port +LunariaOS @debug-output @projects @self
+(B) 2026-09-28 add -serial stdio to the headless Makefile target +LunariaOS @debug-output @projects @self
+(B) 2026-09-28 add -s -S to the Makefile qemu targets +LunariaOS @debug-output @projects @self
+(B) 2026-09-28 add a gdb remote target / .gdbinit for the above +LunariaOS @debug-output @projects @self
+@input — stop blocking the whole kernel on the keyboard
+(B) 2026-09-28 kbd_poll(): single-key fetch that returns -1 instead of spinning (keyboard.c:73) +LunariaOS @input @projects @self
+(B) 2026-09-28 switch the shell loop over to kbd_poll +LunariaOS @input @projects @self
+(B) 2026-09-28 stop silently dropping scancodes when the 256-byte ring fills (keyboard.c:66) +LunariaOS @input @projects @self
+(C) 2026-09-28 expose a non-blocking read to user programs as a syscall +LunariaOS @input @projects @self
+(C) 2026-09-28 make kbd_getc yield to the scheduler instead of spinning (blocked on @sched ) +LunariaOS @input @projects @self
+@sched — run more than one process
+(B) 2026-09-28 PCB struct and a process table +LunariaOS @sched @projects @self
+(B) 2026-09-28 allocate a per-process kernel stack +LunariaOS @sched @projects @self
+(B) 2026-09-28 round-robin switch driven by the PIT tick +LunariaOS @sched @projects @self
+(B) 2026-09-28 swap CR3 on every context switch +LunariaOS @sched @projects @self
+(B) 2026-09-28 swap tss.esp0 on every context switch +LunariaOS @sched @projects @self
+(B) 2026-09-28 save and restore the ring-3 ESP and the iret frame across switches +LunariaOS @sched @projects @self
+(C) 2026-09-28 return to the shell when a process exits (exit_to_shell already exists) +LunariaOS @sched @projects @self
+@loader — load real ELF binaries instead of one flat blob
+(B) 2026-09-28 parse the ELF header: e_entry, e_phoff, e_phnum +LunariaOS @loader @projects @self
+(B) 2026-09-28 parse the PT_LOAD program headers +LunariaOS @loader @projects @self
+(B) 2026-09-28 map each PT_LOAD into the process page directory +LunariaOS @loader @projects @self
+(B) 2026-09-28 zero .bss where p_memsz exceeds p_filesz +LunariaOS @loader @projects @self
+(C) 2026-09-28 jump to e_entry instead of the hardcoded USER_BASE (shell.c:138) +LunariaOS @loader @projects @self
+(C) 2026-09-28 pass argv and envp to the new entry point +LunariaOS @loader @projects @self
+(C) 2026-09-28 drop the fixed 0x400000 link address in prog.ld +LunariaOS @loader @projects @self
+@segments — actually lock down ring 3
+(C) 2026-09-28 per-process tss.esp0 instead of the hardcoded 0x90000 (gdt.c:69) +LunariaOS @segments @projects @self
+(C) 2026-09-28 I/O permission bitmap, so ring 3 cannot run in / out (gdt.c:71) +LunariaOS @segments @projects @self
+(C) 2026-09-28 reload ss/ds/es/fs/gs correctly when iret-ing into ring 3 +LunariaOS @segments @projects @self
+@higher-half — move the kernel out of low memory
+(C) 2026-09-28 link the kernel at 0xC0000000 (linker.ld, currently . = 0x7E00) +LunariaOS @higher-half @projects @self
+(C) 2026-09-28 identity-map only the low 4 MB +LunariaOS @higher-half @projects @self
+(C) 2026-09-28 map the kernel window with the physical base subtracted out +LunariaOS @higher-half @projects @self
+(C) 2026-09-28 bootloader: AH=0x42 LBA reads instead of CHS (boot.asm:24) +LunariaOS @higher-half @projects @self
+(C) 2026-09-28 bootloader: load the kernel straight to its final address +LunariaOS @higher-half @projects @self
+(C) 2026-09-28 raise boot esp off 0x90000 — it is only 520 KB above kernel_end +LunariaOS @higher-half @projects @self
+@vga — finish the text console
+(D) 2026-09-28 decide insert vs overwrite at the cursor (putchar only overwrites, vga.c:87) +LunariaOS @vga @projects @self
+(D) 2026-09-28 handle \r +LunariaOS @vga @projects @self
+(D) 2026-09-28 handle \t with real tab stops +LunariaOS @vga @projects @self
+(D) 2026-09-28 handle \b +LunariaOS @vga @projects @self
+(D) 2026-09-28 scroll up when bkspc deletes past the top-left (vga.c:142) +LunariaOS @vga @projects @self
+(D) 2026-09-28 showCursor(): drive the hardware cursor or delete the empty stub (vga.c:162) +LunariaOS @vga @projects @self

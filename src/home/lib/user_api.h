@@ -11,6 +11,7 @@
 #define SYS_CLEAR  8
 #define SYS_PUTCHAR_AT 9
 #define SYS_GOTO_XY 10
+#define SYS_SBRK 11
 
 #define EXIT_SHELL    0
 #define EXIT_HALT     1
@@ -102,6 +103,15 @@ static inline int sys_list(const char *path, char *buf, unsigned int max)
 {
     int r;
     __asm__ volatile("int $0x80" : "=a"(r) : "a"(SYS_LIST), "b"(path), "c"(buf), "d"(max));
+    return r;
+}
+
+/* Grow the heap by inc bytes and return the new break. The pages behind it
+   are not backed until the program actually touches them. */
+static inline unsigned int sys_sbrk(unsigned int inc)
+{
+    unsigned int r;
+    __asm__ volatile("int $0x80" : "=a"(r) : "a"(SYS_SBRK), "b"(inc));
     return r;
 }
 

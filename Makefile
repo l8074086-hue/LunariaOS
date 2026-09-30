@@ -8,7 +8,11 @@ KERNEL_DIR = $(SRC_DIR)/kernel
 
 .DEFAULT_GOAL := all
 
-CFLAGS = -m32 -ffreestanding -nostdlib -nostartfiles -Wall -Wextra -std=c99 -I$(SRC_DIR)/headers -I$(SRC_DIR)/lib -I$(SRC_DIR)/home/lib -fno-stack-protector -fno-pic -fno-builtin -fno-asynchronous-unwind-tables -mno-sse -mno-mmx -mno-80387 -MMD -MP
+# Debug extras are opt-in, e.g.
+#   make run EXTRA_CFLAGS="-DPAGER_TEST -DPAGER_PROBE"
+EXTRA_CFLAGS ?=
+
+CFLAGS = -m32 -ffreestanding -nostdlib -nostartfiles -Wall -Wextra -std=c99 -I$(SRC_DIR)/headers -I$(SRC_DIR)/lib -I$(SRC_DIR)/home/lib -fno-stack-protector -fno-pic -fno-builtin -fno-asynchronous-unwind-tables -mno-sse -mno-mmx -mno-80387 -MMD -MP $(EXTRA_CFLAGS)
 LDFLAGS = -m elf_i386 -T $(KERNEL_DIR)/linker.ld
 ASMFLAGS_BIN = -f bin
 ASMFLAGS_ELF = -f elf32
@@ -48,8 +52,8 @@ $(BUILD_DIR)/kernel.bin: $(BUILD_DIR)/kernel.elf | $(BUILD_DIR)
 	$(OBJCOPY) -O binary $< $@
 	truncate -s %512 $@
 
-$(BUILD_DIR)/prog_%.o: src/home/%.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
+$(BUILD_DIR)/prog_%.o: src/home/%.c Makefile | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -ffunction-sections -c $< -o $@
 
 $(BUILD_DIR)/prog_%.elf: $(BUILD_DIR)/prog_%.o src/home/prog.ld | $(BUILD_DIR)
 	$(LD) -m elf_i386 -T src/home/prog.ld -o $@ $<
@@ -57,7 +61,7 @@ $(BUILD_DIR)/prog_%.elf: $(BUILD_DIR)/prog_%.o src/home/prog.ld | $(BUILD_DIR)
 $(BUILD_DIR)/prog_%.bin: $(BUILD_DIR)/prog_%.elf | $(BUILD_DIR)
 	$(OBJCOPY) -O binary $< $@
 
-$(BUILD_DIR)/kernel.elf: $(BUILD_DIR)/entry.o $(BUILD_DIR)/kernel.o $(BUILD_DIR)/vga.o $(BUILD_DIR)/keyboard.o $(BUILD_DIR)/ata.o $(BUILD_DIR)/idt.o $(BUILD_DIR)/isr.o $(BUILD_DIR)/shell.o $(BUILD_DIR)/wm.o $(BUILD_DIR)/fs.o $(BUILD_DIR)/gdt.o $(BUILD_DIR)/syscall.o $(BUILD_DIR)/pit.o | $(BUILD_DIR)
+$(BUILD_DIR)/kernel.elf: $(BUILD_DIR)/entry.o $(BUILD_DIR)/kernel.o $(BUILD_DIR)/memory.o $(BUILD_DIR)/vga.o $(BUILD_DIR)/keyboard.o $(BUILD_DIR)/ata.o $(BUILD_DIR)/idt.o $(BUILD_DIR)/isr.o $(BUILD_DIR)/shell.o $(BUILD_DIR)/wm.o $(BUILD_DIR)/fs.o $(BUILD_DIR)/gdt.o $(BUILD_DIR)/syscall.o $(BUILD_DIR)/pit.o | $(BUILD_DIR)
 	$(LD) $(LDFLAGS) -o $@ $^
 
 $(BUILD_DIR)/entry.o: $(KERNEL_DIR)/entry.asm | $(BUILD_DIR)
@@ -67,6 +71,9 @@ $(BUILD_DIR)/isr.o: $(KERNEL_DIR)/isr.asm | $(BUILD_DIR)
 	$(ASM) $(ASMFLAGS_ELF) $< -o $@
 
 $(BUILD_DIR)/kernel.o: $(KERNEL_DIR)/kernel.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/memory.o: $(KERNEL_DIR)/memory.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/idt.o: $(KERNEL_DIR)/idt.c | $(BUILD_DIR)

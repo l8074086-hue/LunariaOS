@@ -1,0 +1,10 @@
+x 2026-09-28 IDT + exception handlers +LunariaOS @projects @self
+x 2026-09-28 Interrupt based keyboard driver +LunariaOS @projects @self
+x 2026-09-28 Terminal struct and abstraction +LunariaOS @projects @self
+x 2026-09-28 disk driver +LunariaOS @projects @self
+x 2026-09-28 Filesystem (FAT32 is classic) — booting from raw sectors limits loading programs +LunariaOS @projects @self
+x 2026-09-28 Text scrolling when the cursor hits the bottom row +LunariaOS @projects @self
+x 2026-09-28 PIT timer (IRQ0) — needed for blinking cursor, sleep, time tracking +LunariaOS @projects @self
+x 2026-09-28 Syscalls — boundary between kernel and user programs +LunariaOS @projects @self
+x 2026-09-28 Tests — headless QEMU + assert on VGA memory +LunariaOS @projects @self
+x 2026-09-28 Caps Lock / modifier handling beyond shift +LunariaOS @projects @self
