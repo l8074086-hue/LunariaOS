@@ -21,3 +21,4 @@ x 2026-10-07 Program entry receives argv — the shell builds a cdecl argc/argv(
 x 2026-10-07 tcc file driver — `tcc demo.c [args...]` compiles a .c file from disk and runs its main() with the trailing args (src/home/tcc.c) +LunariaOS @projects @self
 
 x 2026-10-07 tcc flat binaries — `tcc file.c -o out.bin` links a self-contained image (embedded flat_runtime) baked at TCC_FLAT_BASE via tcc_relocate_at, and the shell loads and runs it (tcc.c, tccrun.c, shell.c) +LunariaOS @projects @self
+x 2026-10-07 flat -o images link the on-disk libc.a — printf/FILE/malloc/puts/exit resolve in flat binaries; embedded 64-bit div/shift intrinsics (flat_intrin, both modes), __heap_start anchored at TCC_FLAT_BASE + loader break past the image; fs_seeder seeds libc.a + print.c under exact names (tcc.c, tccrun.c, shell.c, fs_seeder.c, fs.h) +LunariaOS @projects @self

@@ -51,12 +51,12 @@ $(BUILD_DIR):
 $(BUILD_DIR)/OS.bin: $(BUILD_DIR)/boot.bin $(BUILD_DIR)/kernel.bin | $(BUILD_DIR)
 	cat $^ > $@
 
-$(BUILD_DIR)/fs_seeder: tools/fs_seeder.c $(PROGS) | $(BUILD_DIR)
+$(BUILD_DIR)/fs_seeder: tools/fs_seeder.c $(PROGS) $(LIBC_LIB) | $(BUILD_DIR)
 	$(CC) -Wall -Wextra -o $@ $<
 
-$(DISK_IMG): $(BUILD_DIR)/boot.bin $(BUILD_DIR)/kernel.bin $(BUILD_DIR)/fs_seeder $(PROGS) | $(BUILD_DIR)
+$(DISK_IMG): $(BUILD_DIR)/boot.bin $(BUILD_DIR)/kernel.bin $(BUILD_DIR)/fs_seeder $(PROGS) $(LIBC_LIB) | $(BUILD_DIR)
 	@dd if=/dev/zero of=$@ bs=1M count=$(DISK_SIZE_MB) status=none
-	$(BUILD_DIR)/fs_seeder $(PROGS)
+	$(BUILD_DIR)/fs_seeder $(PROGS) $(LIBC_LIB)
 	dd if=$(BUILD_DIR)/boot.bin of=$@ conv=notrunc status=none
 	dd if=$(BUILD_DIR)/kernel.bin of=$@ bs=512 seek=1 conv=notrunc status=none
 

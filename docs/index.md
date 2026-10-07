@@ -83,9 +83,11 @@ programs ([`src/home/*.c`](../src/home)).
 | `0x7C00`   | 512 B    | Bootloader (sector 0)                     |
 | `0x7E00`   | varies   | Kernel (loaded from sector 1 onward)      |
 | `0x90000`  |          | Kernel stack (`esp`)                      |
-| `0x100000` |          | User program base (`USER_BASE`)           |
-| `0x200000` |          | User stack (`USER_STACK`)                 |
 | `0xB8000`  | 4000 B   | VGA text-mode framebuffer (80 x 25 x 2)   |
+| `0x400000` | 2 MB     | User program base (`USER_BASE`)           |
+| `0x680000` | 64K      | Flat `-o` images (`TCC_FLAT_BASE`)        |
+| `0x7FF000` |          | User stack top (`USER_STACK`)             |
+| `0x800000` |          | User region end (`USER_TOP`)              |
 
 Kernel and user programs are both linked to these fixed addresses via
 [`src/kernel/linker.ld`](../src/kernel/linker.ld) and
@@ -198,7 +200,6 @@ Future improvements may include:
 * page protection and read/write/execute permissions
 * separate code, data, heap, and stack regions
 * dynamically growing user stacks
-* a userspace heap allocator
 * copy-on-write address spaces
 * memory-backed file mappings
 * process isolation and multiple simultaneously running processes
@@ -324,8 +325,10 @@ Operations: `fs_mount` (verifies magic), `fs_find`, `fs_ls`/`fs_ls_buf`,
 
 Paths with slashes (`dir/sub`) are supported: the parent directory keeps a
 newline-separated list of full child paths. On boot the disk image is
-seeded by [`tools/fs_seeder.c`](../tools/fs_seeder.c), which writes the
-superblock, a couple of text files, and the compiled user programs.
+seeded by [`tools/fs_seeder.c`](../tools/fs_seeder.c): the superblock, text
+files and demo sources (`demo.c`, `print.c`), the compiled user programs,
+and `libc.a` — the userspace C library that the on-device tcc links into
+flat `-o` images.
 
 ## System Calls
 
@@ -345,6 +348,13 @@ The wrappers live in [`src/home/lib/user_api.h`](../src/home/lib/user_api.h).
 | 8 | `clear`        | —                                      | —       |
 | 9 | `putchar_at`   | c, x, y, color                         | —       |
 | 10 | `goto_xy`      | x, y                                   | —       |
+| 11 | `sbrk`         | delta                                  | eax: old break |
+| 12 | `open`         | name, flags                            | eax: fd / -1 |
+| 13 | `read`         | fd, buf, len                           | eax: bytes / -1 |
+| 14 | `write`        | fd, buf, len                           | eax: bytes / -1 |
+| 15 | `lseek`        | fd, offset, whence                     | eax: pos / -1 |
+| 16 | `close`        | fd                                     | eax: 0 / -1 |
+| 17 | `unlink`       | name                                   | eax: 0 / -1 |
 
 `exit_to` chooses what happens when the user program calls `exit`: return to
 the shell, halt, power off (ACPI `0x604`/`0x2000`), or reboot (keyboard
@@ -396,8 +406,9 @@ in QEMU's headless curses mode.
 ## User Programs
 
 User programs live in [`src/home/`](../src/home) and are compiled as flat
-binaries linked at `0x100000`, then embedded into the disk image by the
-`fs_seeder` as files named after the program (e.g. `hello`, `tui`).
+binaries linked at `USER_BASE` (`0x400000`), then embedded into the disk
+image by the `fs_seeder` as files named after the program (e.g. `hello`,
+`tui`).
 
 To run one, type `run hello` (or `run tui`) in the shell. The shell reads the
 file into `USER_BASE`, then calls `enter_user(eip, esp)`
@@ -422,8 +433,13 @@ syscalls. Included examples:
 - **libctest** — userspace C library test: allocator, string and ctype checks
 - **filetest** — file-handle test: open/read/write/seek/close/unlink round trips
 - **stdiotest** — stdio test: `printf`/`snprintf` formatting and `FILE` round trips
-- **tcc** — on-device C compiler: an embedded TinyCC core that compiles,
-  relocates and calls a program built from memory
+- **tcc** — on-device C compiler: an embedded TinyCC core. `run tcc demo.c
+  fib` compiles and runs a program straight off the disk in memory; `run
+  tcc print.c -o print` links a *flat binary* against the seeded `libc.a`,
+  so `printf`/`malloc`/`FILE` streams work in `-o` images (loaded at
+  `TCC_FLAT_BASE`, `0x680000`); bare `run tcc` is a built-in self test.
+  Seeded sources: `demo.c` (uses `print`/`print_dec`, works in both modes)
+  and `print.c` (exercises the full `printf` library: `%d`, `%s`, `%llu`)
 
 ## Building and Running
 

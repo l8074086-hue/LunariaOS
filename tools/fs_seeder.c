@@ -14,10 +14,11 @@ int main(int argc, char **argv)
   if (!f)
     return 1;
   char zeros[512] = {0};
-  struct file_entry entry1 = {0}, entry2 = {0}, entry3 = {0};
+  struct file_entry entry1 = {0}, entry2 = {0}, entry3 = {0}, entry4 = {0};
   strcpy(entry1.name, "readme.txt");
   strcpy(entry2.name, "hello.txt");
   strcpy(entry3.name, "demo.c");
+  strcpy(entry4.name, "print.c");
 
   fseek(f, FS_DIR_LBA * 512, SEEK_SET);
   for (int i = 0; i < FS_DIR_SECTORS; i++)
@@ -69,12 +70,32 @@ int main(int argc, char **argv)
   entry3.size = strlen(text3);
   next_lba += (strlen(text3) + 511) / 512;
 
-  // PROGRAMS from argv
+  // FILE 4 (printf source for the on-device tcc: needs libc.a linked in)
+  fseek(f, next_lba * 512, SEEK_SET);
+  const char *text4 =
+      "/* flat-libc demo: printf() links into an -o image because tcc pulls\n"
+      "   libc.a (seeded on the disk) into the image. print() works\n"
+      "   everywhere; printf()/malloc()/fopen() are flat-binary extras. */\n"
+      "int main(int argc, char **argv)\n"
+      "{\n"
+      "    printf(\"print.c: argc=%d\\n\", argc);\n"
+      "    if (argc >= 2)\n"
+      "        printf(\"print.c: argv[1]=%s\\n\", argv[1]);\n"
+      "    printf(\"print.c: u64=%llu\\n\", 1234567890123ull);\n"
+      "    return argc;\n"
+      "}\n";
+  fwrite(text4, 1, strlen(text4), f);
+  entry4.lba = next_lba;
+  entry4.size = strlen(text4);
+  next_lba += (strlen(text4) + 511) / 512;
+
+  // PROGRAMS and libraries from argv
   struct file_entry entries[FS_ENTRIES_PER_SECTOR];
   memset(entries, 0, sizeof entries);
   int n_entries = 2;
   entries[2] = entry3;
-  n_entries = 3;
+  entries[3] = entry4;
+  n_entries = 4;
   for (int i = 1; i < argc; i++)
   {
     FILE *prog = fopen(argv[i], "rb");
@@ -89,19 +110,23 @@ int main(int argc, char **argv)
 
     const char *base = strrchr(argv[i], '/');
     base = base ? base + 1 : argv[i];
-    if (strncmp(base, "prog_", 5) == 0)
-      base += 5;
     char name[23];
     memset(name, 0, sizeof name);
     strncpy(name, base, sizeof name - 1);
-    char *dot = strrchr(name, '.');
-    if (dot && dot != name)
-      *dot = '\0';
+    if (strncmp(name, "prog_", 5) == 0)
+    {
+      /* programs: drop the prog_ prefix and the .bin extension */
+      memmove(name, name + 5, strlen(name + 5) + 1);
+      char *dot = strrchr(name, '.');
+      if (dot)
+        *dot = '\0';
+    }
+    /* anything else (libc.a) is seeded under its exact name */
 
     entries[n_entries].lba = next_lba;
     entries[n_entries].size = psize;
     strcpy(entries[n_entries].name, name);
-    entries[n_entries].type = 1;
+    entries[n_entries].type = FS_FILE;
 
     fseek(f, next_lba * 512, SEEK_SET);
     char pbuf[512];

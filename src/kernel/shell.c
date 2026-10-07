@@ -218,7 +218,10 @@ void shell_run_program(const char *name, int argc, char **argv)
             }
 
             memcpy((void *)TCC_FLAT_BASE, img + 12, fsize);
-            vm_note_load(fsize);
+            /* Images linked against libc.a need their heap just past the
+               image: tcc anchors __heap_start at TCC_FLAT_BASE, so the
+               break must sit above that (hence the USER_BASE offset). */
+            vm_note_load((TCC_FLAT_BASE - USER_BASE) + fsize);
             wm_current()->prompt = 0;
             kbd_flush();
             enter_user(TCC_FLAT_BASE + fentry, build_user_args(argc, argv));

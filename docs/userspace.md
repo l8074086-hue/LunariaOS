@@ -364,26 +364,42 @@ an undefined-symbol message.
 
 Unlike run mode, a `-o` image cannot call into the compiler's own process, so
 the driver compiles a small embedded runtime (`flat_runtime` in
-`src/home/tcc.c`) together with the source and bakes the whole image for the
-fixed link address `TCC_FLAT_BASE`. What the flat runtime provides is all a
-flat program can use:
+`src/home/tcc.c`) together with the source, links the on-disk `libc.a`
+archive, and bakes the whole image for the fixed link address
+`TCC_FLAT_BASE`. The archive is seeded by `tools/fs_seeder.c`, so a flat
+image gets the full userspace library (`printf`, the `FILE` layer, `malloc`,
+`puts`, `exit`, `abs`, ...) just like a link-time program; the embedded
+runtime adds only what the archive does not export:
 
-* the syscalls `print()`, `putchar()`, `puts()` and `exit()` — embedded via
-  the `int $0x80` trap directly, because there are no headers on the device
-  disk to `#include`;
+* the syscalls `print()` and `putchar()` — via the `int $0x80` trap directly,
+  because there are no headers on the device disk to `#include`;
 * `print_dec()` for printing a signed integer;
-* the usual small helpers `strlen`, `strcmp`, `atoi`, `abs`, `memset`,
-  `memcpy` and `strcpy`.
+* the string staples `strlen`, `strcmp`, `atoi`, `memset`, `memcpy`, `strcpy`.
+
+Two pieces of machinery make the archive link work:
+
+* `flat_intrin` — word-at-a-time `__udivdi3`/`__umoddi3`/`__divdi3`/`__moddi3`
+  plus the 64-bit shift helpers, compiled into the image. The archive's `%ll`
+  formatting (and any `long long` math in the source) needs them, and there is
+  no libgcc on the device. Run mode compiles the same copy, so 64-bit math
+  works there too.
+* `__heap_start` — the archive's allocator anchors its break at this symbol.
+  tcc anchors it to `TCC_FLAT_BASE`, and the shell's loader raises the break
+  to just past the image (`vm_note_load((TCC_FLAT_BASE - USER_BASE) + fsize)`
+  in `shell.c`), so the anchor only acts as a floor and the heap grows above
+  the image.
 
 `run` recognises the 12-byte header the compiler prepends (`"LUNB"` magic +
 u32 image size + u32 `_start` offset), copies the image to `TCC_FLAT_BASE`
 and enters it with the usual argv frame. `demo.c` works in both modes because
-it sticks to `print()`/`print_dec()`.
+it sticks to `print()`/`print_dec()`; the seeded `print.c` exercises the
+full-library path — `run tcc print.c -o print` then `run print hello` prints
+`print.c: argc=2`, `print.c: argv[1]=hello` and a 64-bit value from `%llu`.
 
 Limits:
 
 * the image plus its header must stay under the disk's 64K writable-file
-  buffer (`TCC_FLAT_MAX`);
+  buffer (`TCC_FLAT_MAX`) — a typical printf-style image is 12-20K;
 * the kernel rejects an image that would reach the user stack;
 * a compiled file may declare `main` as `int main(void)`,
   `int main(int argc, char **argv)` or the three-argument form — the `_start`

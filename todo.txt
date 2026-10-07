@@ -61,7 +61,6 @@
 @tcc — turn the embedded compiler into a real on-device toolchain
 (A) 2026-10-07 write ELF object/executable output and full option parsing (flat binary -o output is done) +LunariaOS @tcc @projects @self
 (B) 2026-10-07 build a libtcc1.a (alloca, stack probes, helper objects) for targeted code +LunariaOS @tcc @projects @self
-(B) 2026-10-07 link generated programs against libc.a/libtcc1.a from disk (symbols now come from a tcc_add_symbol table in tcc.c) +LunariaOS @tcc @projects @self
 (B) 2026-10-07 give the compiler a real sysinclude path on disk (its own headers) +LunariaOS @tcc @projects @self
 (C) 2026-10-07 wall clock for __DATE__/__TIME__ instead of the Unix epoch +LunariaOS @tcc @projects @self
 (C) 2026-10-07 pin CONFIG_TRIPLET/OS predefines to Lunaria instead of the Linux host +LunariaOS @tcc @projects @self

@@ -98,6 +98,20 @@ def test_tcc_flat(disk):
     run(disk, "tcc flat", body)
 
 
+def test_tcc_flat_libc(disk):
+    def body(q):
+        q.command("run tcc print.c -o print", wait=20.0)
+        text = screen_text(q.dump("v_tccpl.bin"))
+        check("tcc links libc.a into flat image", "tcc: wrote print" in text)
+
+        q.command("run print hello", wait=3.0)
+        text = screen_text(q.dump("v_tccpl2.bin"))
+        check("flat printf formats argc", "print.c: argc=2" in text)
+        check("flat printf formats strings", "print.c: argv[1]=hello" in text)
+        check("flat printf formats 64-bit", "print.c: u64=1234567890123" in text)
+    run(disk, "tcc flat libc", body)
+
+
 def test_mirror(disk):
     def body(q):
         q.command("run mirrordemo", wait=1.2)
@@ -141,6 +155,7 @@ def main():
     test_tcc(disk)
     test_tcc_file(disk)
     test_tcc_flat(disk)
+    test_tcc_flat_libc(disk)
     test_mirror(disk)
     test_edit_roundtrip(disk)
 

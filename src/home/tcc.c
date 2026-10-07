@@ -12,11 +12,13 @@
    program's own libc.a image, and the code runs right here in this process.
 
    -o mode instead compiles a small embedded runtime (flat_runtime, below)
-   together with the source into one self-contained image, baked for the
-   fixed TCC_FLAT_BASE address, writes it to the disk behind a 12-byte
-   "LUNB" header, and exits -- the shell's `run` command then loads that
-   file verbatim at TCC_FLAT_BASE. Only what flat_runtime implements is
-   available there; see docs/userspace.md. */
+   plus 64-bit integer helpers (flat_intrin) together with the source, links
+   the libc.a archive seeded on the disk, bakes the image for the fixed
+   TCC_FLAT_BASE address, writes it to the disk behind a 12-byte "LUNB"
+   header, and exits -- the shell's `run` command then loads that file
+   verbatim at TCC_FLAT_BASE. The archive's allocator references
+   __heap_start, anchored at TCC_FLAT_BASE; the loader puts the break just
+   past the image, so that anchor acts only as a floor. See docs/userspace.md. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -132,10 +134,11 @@ static void print_dec_(int n)
     print(&b[i + 1]);
 }
 
-/* The runtime compiled into every -o image, as its own translation unit so
-   it needs no add_libc() registration. It uses the syscall trap directly
-   (there are no headers on the device disk to #include). Keep the set
-   small and tcc-compilable. */
+/* The syscall-level runtime compiled into every -o image, as its own
+   translation unit so it needs no add_libc() registration. puts/exit/abs
+   and everything else come from the linked libc.a archive; what stays here
+   is the syscall plumbing and the string staples the archive does not
+   export as globals. */
 static const char flat_runtime[] =
     "static unsigned int rt_len(const char *s)\n"
     "{ unsigned int n = 0; while (s[n]) n++; return n; }\n"
@@ -148,8 +151,6 @@ static const char flat_runtime[] =
     "{ char ch = (char)c;\n"
     "  __asm__ volatile(\"int $0x80\" :: \"a\"(1), \"b\"(&ch), \"c\"(1) : \"memory\"); }\n"
     "\n"
-    "void puts(const char *s) { print(s); print(\"\\n\"); }\n"
-    "\n"
     "void print_dec(int n)\n"
     "{\n"
     "  char b[16]; unsigned int v, i = 15;\n"
@@ -157,11 +158,6 @@ static const char flat_runtime[] =
     "  else v = (unsigned int)n;\n"
     "  do { b[i--] = (char)('0' + v % 10); v /= 10; } while (v);\n"
     "  print(&b[i + 1]);\n"
-    "}\n"
-    "\n"
-    "void exit(int status)\n"
-    "{ (void)status; __asm__ volatile(\"int $0x80\" :: \"a\"(2));\n"
-    "  for (;;) {}\n"
     "}\n"
     "\n"
     "unsigned int strlen(const char *s) { return rt_len(s); }\n"
@@ -175,8 +171,6 @@ static const char flat_runtime[] =
     "  while (*s >= '0' && *s <= '9') { r = r * 10 + (*s - '0'); s++; }\n"
     "  return r * sign; }\n"
     "\n"
-    "int abs(int n) { return n < 0 ? -n : n; }\n"
-    "\n"
     "void *memset(void *d, int c, unsigned int n)\n"
     "{ unsigned char *p = d; while (n--) *p++ = (unsigned char)c; return d; }\n"
     "\n"
@@ -189,6 +183,132 @@ static const char flat_runtime[] =
     "\n"
     "extern int main();\n"
     "void _start(int argc, char **argv) { exit(main(argc, argv, 0)); }\n";
+
+/* 64-bit integer helpers, as source. libc.a's stdio divides 64-bit values
+   (%ll paths in do_format) and expects __udivdi3/__umoddi3; TCC-compiled
+   code needs the shift helpers for variable 64-bit shifts. Flat mode embeds
+   these in the image; run mode compiles the same copy so long-long code
+   resolves there too. The kernels are written word-at-a-time so TCC never
+   recurses into its own helpers. */
+static const char flat_intrin[] =
+    "static unsigned long long rt_divmod(unsigned long long n,\n"
+    "                                    unsigned long long d, int want_r)\n"
+    "{\n"
+    "    unsigned int nlo = (unsigned int)n;\n"
+    "    unsigned int nhi = (unsigned int)(n >> 32);\n"
+    "    unsigned int dlo = (unsigned int)d;\n"
+    "    unsigned int dhi = (unsigned int)(d >> 32);\n"
+    "    unsigned int rlo = 0, rhi = 0, qlo = 0, qhi = 0;\n"
+    "    int i;\n"
+    "    if (dlo == 0 && dhi == 0)\n"
+    "        return 0;\n"
+    "    for (i = 63; i >= 0; i--)\n"
+    "    {\n"
+    "        unsigned int bit = i >= 32 ? (nhi >> (i - 32)) & 1u\n"
+    "                                    : (nlo >> i) & 1u;\n"
+    "        unsigned int rhi2 = (rhi << 1) | (rlo >> 31);\n"
+    "        rlo = (rlo << 1) | bit;\n"
+    "        rhi = rhi2;\n"
+    "        if (rhi > dhi || (rhi == dhi && rlo >= dlo))\n"
+    "        {\n"
+    "            unsigned int b = rlo < dlo ? 1u : 0u;\n"
+    "            rlo -= dlo;\n"
+    "            rhi = rhi - dhi - b;\n"
+    "            if (i >= 32)\n"
+    "                qhi |= 1u << (i - 32);\n"
+    "            else\n"
+    "                qlo |= 1u << i;\n"
+    "        }\n"
+    "    }\n"
+    "    if (want_r)\n"
+    "        return ((unsigned long long)rhi << 32) | rlo;\n"
+    "    return ((unsigned long long)qhi << 32) | qlo;\n"
+    "}\n"
+    "\n"
+    "unsigned long long __udivdi3(unsigned long long a, unsigned long long b)\n"
+    "{ return rt_divmod(a, b, 0); }\n"
+    "\n"
+    "unsigned long long __umoddi3(unsigned long long a, unsigned long long b)\n"
+    "{ return rt_divmod(a, b, 1); }\n"
+    "\n"
+    "long long __divdi3(long long a, long long b)\n"
+    "{\n"
+    "    int neg = (a < 0) != (b < 0);\n"
+    "    unsigned long long ua = a < 0 ? 0ull - (unsigned long long)a\n"
+    "                                 : (unsigned long long)a;\n"
+    "    unsigned long long ub = b < 0 ? 0ull - (unsigned long long)b\n"
+    "                                 : (unsigned long long)b;\n"
+    "    unsigned long long q = rt_divmod(ua, ub, 0);\n"
+    "    return neg ? (long long)(0ull - q) : (long long)q;\n"
+    "}\n"
+    "\n"
+    "long long __moddi3(long long a, long long b)\n"
+    "{\n"
+    "    int neg = a < 0;\n"
+    "    unsigned long long ua = a < 0 ? 0ull - (unsigned long long)a\n"
+    "                                 : (unsigned long long)a;\n"
+    "    unsigned long long ub = b < 0 ? 0ull - (unsigned long long)b\n"
+    "                                 : (unsigned long long)b;\n"
+    "    unsigned long long r = rt_divmod(ua, ub, 1);\n"
+    "    return neg ? (long long)(0ull - r) : (long long)r;\n"
+    "}\n"
+    "\n"
+    "unsigned long long __lshrdi3(unsigned long long u, int b)\n"
+    "{\n"
+    "    unsigned int lo = (unsigned int)u, hi = (unsigned int)(u >> 32);\n"
+    "    unsigned int rlo, rhi;\n"
+    "    if (b == 0)\n"
+    "        return u;\n"
+    "    if (b >= 32)\n"
+    "    {\n"
+    "        rlo = hi >> (b - 32);\n"
+    "        rhi = 0;\n"
+    "    }\n"
+    "    else\n"
+    "    {\n"
+    "        rlo = (lo >> b) | (hi << (32 - b));\n"
+    "        rhi = hi >> b;\n"
+    "    }\n"
+    "    return ((unsigned long long)rhi << 32) | rlo;\n"
+    "}\n"
+    "\n"
+    "unsigned long long __ashldi3(unsigned long long u, int b)\n"
+    "{\n"
+    "    unsigned int lo = (unsigned int)u, hi = (unsigned int)(u >> 32);\n"
+    "    unsigned int rlo, rhi;\n"
+    "    if (b == 0)\n"
+    "        return u;\n"
+    "    if (b >= 32)\n"
+    "    {\n"
+    "        rlo = 0;\n"
+    "        rhi = lo << (b - 32);\n"
+    "    }\n"
+    "    else\n"
+    "    {\n"
+    "        rlo = lo << b;\n"
+    "        rhi = (hi << b) | (lo >> (32 - b));\n"
+    "    }\n"
+    "    return ((unsigned long long)rhi << 32) | rlo;\n"
+    "}\n"
+    "\n"
+    "unsigned long long __ashrdi3(unsigned long long u, int b)\n"
+    "{\n"
+    "    unsigned int lo = (unsigned int)u, hi = (unsigned int)(u >> 32);\n"
+    "    unsigned int rlo, rhi;\n"
+    "    if (b == 0)\n"
+    "        return u;\n"
+    "    if (b >= 32)\n"
+    "    {\n"
+    "        rlo = (unsigned int)((int)hi >> (b - 32));\n"
+    "        rhi = (unsigned int)((int)hi >> 31);\n"
+    "    }\n"
+    "    else\n"
+    "    {\n"
+    "        rlo = (lo >> b) | (hi << (32 - b));\n"
+    "        rhi = (unsigned int)((int)hi >> b);\n"
+    "    }\n"
+    "    return ((unsigned long long)rhi << 32) | rlo;\n"
+    "}\n";
 
 /* Read a whole .c file from the disk into a NUL-terminated buffer. */
 static char *read_file(const char *path)
@@ -243,7 +363,10 @@ static void run_file(const char *path, int argc, char **argv)
     tcc_set_options(s, "-nostdlib");
     add_libc(s);
 
-    if (tcc_compile_string(s, src) != 0)
+    /* Long-long divide/shift helpers: the same copy flat mode embeds, so
+       run-mode code with 64-bit math resolves too. */
+    if (tcc_compile_string(s, flat_intrin) != 0
+        || tcc_compile_string(s, src) != 0)
     {
         print("tcc: compile failed\n");
         free(src);
@@ -271,10 +394,11 @@ static void run_file(const char *path, int argc, char **argv)
     tcc_delete(s);
 }
 
-/* tcc <file.c> -o <out.bin>: compile the file together with flat_runtime,
-   bake the image for TCC_FLAT_BASE, and write it behind the flat-binary
-   header. The image must be able to load at TCC_FLAT_BASE, stay below the
-   user stack, and fit the disk's 64K writable-file buffer. */
+/* tcc <file.c> -o <out.bin>: compile the file together with flat_runtime
+   and flat_intrin, link the on-disk libc.a archive, bake the image for
+   TCC_FLAT_BASE, and write it behind the flat-binary header. The image must
+   be able to load at TCC_FLAT_BASE, stay below the user stack, and fit the
+   disk's 64K writable-file buffer. */
 static void build_flat(const char *path, const char *out)
 {
     char *src = read_file(path);
@@ -291,7 +415,9 @@ static void build_flat(const char *path, const char *out)
     tcc_set_output_type(s, TCC_OUTPUT_MEMORY);
     tcc_set_options(s, "-nostdlib");
 
-    if (tcc_compile_string(s, flat_runtime) != 0 || tcc_compile_string(s, src) != 0)
+    if (tcc_compile_string(s, flat_runtime) != 0
+        || tcc_compile_string(s, flat_intrin) != 0
+        || tcc_compile_string(s, src) != 0)
     {
         print("tcc: compile failed\n");
         free(src);
@@ -299,6 +425,22 @@ static void build_flat(const char *path, const char *out)
         return;
     }
     free(src);
+
+    /* Now link the on-disk libc archive so printf/fopen/malloc work, not
+       just the small flat_runtime set. TCC pulls archive members on demand
+       (alacarte), resolving the undefined symbols already on the table, so
+       the archive must come after the code is compiled. */
+    if (tcc_add_file(s, "libc.a") != 0)
+    {
+        print("tcc: cannot link libc.a\n");
+        tcc_delete(s);
+        return;
+    }
+
+    /* The archive's allocator references __heap_start; anchor it at the
+       image base -- the shell's loader raises the break to just past the
+       image, so the anchor only acts as a floor. */
+    tcc_add_symbol(s, "__heap_start", (void *)TCC_FLAT_BASE);
 
     int size = tcc_relocate_at(s, (void *)TCC_FLAT_BASE);
     if (size < 0)
