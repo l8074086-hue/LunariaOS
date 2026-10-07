@@ -268,6 +268,11 @@ uint32_t memory_free_frames(void)
     return frames_free;
 }
 
+uint32_t memory_total_frames(void)
+{
+    return nframes;
+}
+
 /* ------------------------------------------------------------------ *
  * Per-process address spaces
  *
@@ -284,7 +289,6 @@ uint32_t memory_free_frames(void)
 static uint32_t cur_dir;        /* process dir, 0 while only the kernel runs */
 static uint32_t brk;            /* program break for the current process     */
 static uint32_t fault_count;
-unsigned int vm_dbg[8];   /* TEMP diagnostic */
 
 void vm_switch(uint32_t dir)
 {
@@ -379,16 +383,13 @@ int vm_fault(uint32_t addr)
         return 0;
 
     /* zero fill, so a program can never read leftover kernel memory */
-    memset((void *)frame, 0xAA, PAGE_SIZE);   /* TEMP: fill marker */
-    vm_dbg[0] = frame;
-    vm_dbg[1] = ((volatile unsigned char *)frame)[0];
+    memset((void *)frame, 0, PAGE_SIZE);
     *pte = frame | 0x3 | 0x4;                    /* present, RW, user */
-    vm_dbg[2] = *pte;
-    vm_dbg[3] = ((volatile unsigned char *)frame)[0];
     fault_count++;
 
-    /* the faulting lookup left a stale entry in the TLB */
-    vm_switch(cr3);
+    /* the faulting lookup left a stale entry in the TLB: invalidate the
+       one page we just added, then the CPU will retry the instruction */
+    __asm__ volatile("invlpg (%0)" : : "r"(addr) : "memory");
     return 1;
 }
 

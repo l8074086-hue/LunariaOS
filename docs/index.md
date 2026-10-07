@@ -91,6 +91,118 @@ Kernel and user programs are both linked to these fixed addresses via
 [`src/kernel/linker.ld`](../src/kernel/linker.ld) and
 [`src/home/prog.ld`](../src/home/prog.ld).
 
+
+## Paging and Virtual Memory
+
+LunariaOS uses 32-bit x86 paging with 4 KiB pages. Paging provides each
+user program with its own virtual address space and allows user memory to be
+allocated on demand rather than backing the entire user region with physical
+memory immediately.
+
+### Physical Frame Allocator
+
+Physical memory is managed in 4 KiB frames. The frame allocator tracks the
+total number of usable frames and which frames are currently free.
+
+The memory API exposes frame statistics through:
+
+* `memory_total_frames()` — total number of usable physical frames
+* `memory_free_frames()` — number of currently free frames
+* `memory_total_kb()` — total usable memory in KiB
+
+A page therefore consumes one physical frame when it becomes backed.
+
+### User Address Space
+
+User programs use the virtual address range:
+
+```text
+0x400000 - 0x800000
+```
+
+The region is configured for demand paging. Creating a user address space
+does not require every page in this range to have a physical frame assigned
+immediately.
+
+Each program receives its own page directory through `vm_create()`. The
+shell attaches the new address space with `vm_attach()` before loading the
+program:
+
+```c
+uint32_t dir = vm_create();
+vm_attach(dir);
+```
+
+This ensures that the program image is loaded into the address space belonging
+to that invocation rather than into a previously used address space.
+
+### Demand Paging
+
+When a user program accesses a virtual page that has not yet been backed by
+a physical frame, the CPU raises page-fault exception `#PF` (interrupt
+vector `0x0E`).
+
+LunariaOS handles the fault by determining the faulting address and, when the
+access falls within the valid user region, providing a physical frame and
+mapping it into the process's page tables.
+
+The number of page faults successfully serviced by the pager is exposed
+through `vm_faults()`.
+
+The shell's `free` command reports this value:
+
+```text
+ring3  0x400000-0x800000 on demand, 0 faults served
+```
+
+Running a program that touches previously unmapped pages causes this counter
+to increase.
+
+### Program Loading
+
+The shell creates a new address space before loading a binary:
+
+```c
+uint32_t dir = vm_create();
+
+if (!dir)
+    return;
+
+vm_attach(dir);
+
+int size = fs_read(name, (char *)USER_BASE, USER_PROG_MAX);
+vm_note_load((unsigned int)size);
+```
+
+The binary is therefore loaded while the program's address space is active.
+After loading, `enter_user()` constructs a Ring 3 `iret` frame and transfers
+execution to the program's entry point.
+
+### Address-Space Lifetime
+
+When a user program returns to the shell, `vm_detach()` restores the kernel
+address space and releases the program's address-space state.
+
+This prevents mappings from a previous program invocation from being reused
+accidentally by a later invocation.
+
+### Current Model
+
+Paging is currently designed around a simple flat userspace model rather than
+a full virtual-memory subsystem. Programs have a fixed virtual address range
+and stack location, and binaries are loaded as flat images.
+
+Future improvements may include:
+
+* freeing individual user pages
+* page protection and read/write/execute permissions
+* separate code, data, heap, and stack regions
+* dynamically growing user stacks
+* a userspace heap allocator
+* copy-on-write address spaces
+* memory-backed file mappings
+* process isolation and multiple simultaneously running processes
+
 ## Disk Layout
 
 The 16 MB disk image (a flat ATA drive) is divided up in
@@ -254,7 +366,11 @@ frame on the kernel stack so control returns to `exit_to_shell()`.
 | `cat <file>` | Print a file                  |
 | `mkdir <name>` | Create a directory           |
 | `rm <file>` | Delete a file                  |
-| `run <file>` | Load and execute a user program |
+| `run <file> [args...]` | Load and execute a user program, passing `args` to `_start(int, char **)` |
+| `free` | Shows free memory |
+| `uptime` | Shows how long the machine has been on |
+| `banner` | Prints the LunariaOS banner |
+| `sleep` | Pauses |
 | `exit`  | Power off the machine                |
 
 Output redirection is supported: `echo foo > file.txt` writes the output of
@@ -271,9 +387,11 @@ them while holding **Ctrl**:
 - `Ctrl+1` … `Ctrl+9`, `Ctrl+0` (workspaces 0–9)
 - `Ctrl+Q W E R T Y U O P A` (workspaces 0–9) — alternative bindings for headless mode, number keys don't seem to work as well.
 
-`wm_blit()` copies the active terminal's buffer to the VGA framebuffer. Note
-the README warning that Ctrl+number switching may not work in QEMU's headless
-curses mode.
+`wm_blit()` copies the active terminal's buffer to the VGA framebuffer.
+`wm_blit_row()` copies a single row instead; the per-cell syscalls
+(`putchar_at`, `goto_xy`) use it so drawing one character doesn't recopy all
+4000 bytes. Note the README warning that Ctrl+number switching may not work
+in QEMU's headless curses mode.
 
 ## User Programs
 
@@ -299,6 +417,13 @@ syscalls. Included examples:
 
 - **hello** — syscall demo: prints, lists the root directory, writes and reads `test.txt`, reads a key, exits
 - **tui** — draws a border in the terminal using `sys_putchar_at` / `sys_goto_xy`, waits for keys
+- **mirrordemo** — Mirror TUI library demo: menu, text field, progress bar, event log
+- **edit** — text editor built on Mirror: file load/save via syscalls, vi-like `:` commands, scrolling, modified-buffer guard
+- **libctest** — userspace C library test: allocator, string and ctype checks
+- **filetest** — file-handle test: open/read/write/seek/close/unlink round trips
+- **stdiotest** — stdio test: `printf`/`snprintf` formatting and `FILE` round trips
+- **tcc** — on-device C compiler: an embedded TinyCC core that compiles,
+  relocates and calls a program built from memory
 
 ## Building and Running
 

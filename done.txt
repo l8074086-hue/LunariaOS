@@ -8,3 +8,16 @@ x 2026-09-28 PIT timer (IRQ0) — needed for blinking cursor, sleep, time tracki
 x 2026-09-28 Syscalls — boundary between kernel and user programs +LunariaOS @projects @self
 x 2026-09-28 Tests — headless QEMU + assert on VGA memory +LunariaOS @projects @self
 x 2026-09-28 Caps Lock / modifier handling beyond shift +LunariaOS @projects @self
+x 2026-10-06 2026-10-06 sudo pacman -S qemu-ui-curses to make `make headless` work
+x 2026-10-06 Mirror userspace TUI library (src/home/lib/mirror.{h,c}) +LunariaOS @projects @self
+x 2026-10-07 edit — text editor on Mirror (src/home/edit.c) +LunariaOS @projects @self
+x 2026-10-07 Userspace C library — malloc/free/realloc, string + ctype (src/home/lib/libc.c) +LunariaOS @projects @self
+x 2026-10-07 File handles — open/read/write/seek/close/unlink syscalls + in-place fs_write reuse +LunariaOS @projects @self
+x 2026-10-07 stdio FILE layer — fopen/fread/fwrite/fseek/fclose + printf family (src/home/lib/stdio.c) +LunariaOS @projects @self
+x 2026-10-07 POSIX compat headers + libc fill-in — errno/fcntl/unistd/setjmp/time/mman/math, strto*/strerror/realpath, sprintf/fdopen +LunariaOS @projects @self
+x 2026-10-07 x87 FPU enabled — kernel fpu_init (clears CR0.EM/TS, fninit) so long double works +LunariaOS @projects @self
+x 2026-10-07 On-device C compiler — embedded TinyCC core compiles, relocates and runs code (thirdparty/tinycc, run tcc) +LunariaOS @projects @self
+x 2026-10-07 Program entry receives argv — the shell builds a cdecl argc/argv(+envp) frame on the user stack (build_user_args, shell.c) +LunariaOS @projects @self
+x 2026-10-07 tcc file driver — `tcc demo.c [args...]` compiles a .c file from disk and runs its main() with the trailing args (src/home/tcc.c) +LunariaOS @projects @self
+
+x 2026-10-07 tcc flat binaries — `tcc file.c -o out.bin` links a self-contained image (embedded flat_runtime) baked at TCC_FLAT_BASE via tcc_relocate_at, and the shell loads and runs it (tcc.c, tccrun.c, shell.c) +LunariaOS @projects @self

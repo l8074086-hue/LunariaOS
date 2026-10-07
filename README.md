@@ -14,6 +14,12 @@ LunariaOS is a x86_32 hobby operating system completely hand-rolled from scratch
 - Shell
 - User programs
 - Basic privilege separation
+- Mirror userspace TUI library
+- `edit` text editor (userspace, built on Mirror)
+- Userspace C library (`malloc`, `string`, `ctype`)
+- File handles (`open`/`read`/`write`/`seek`/`close`/`unlink`)
+- stdio `FILE` layer (`fopen`/`fread`/`fwrite`/`fseek`/`fclose`, `printf`)
+- On-device C compiler — embedded TinyCC core (`run tcc`)
 
 ## Build
 

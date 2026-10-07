@@ -33,5 +33,6 @@ void term_cursor_down(terminal_t *t);
 void term_cursor_left(terminal_t *t);
 void term_cursor_right(terminal_t *t);
 void wm_blit(const terminal_t *t);
+void wm_blit_row(const terminal_t *t, int y);
 
 #endif

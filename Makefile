@@ -2,6 +2,7 @@ ASM = nasm
 CC = cc
 LD = ld
 OBJCOPY = objcopy
+AR = ar
 BUILD_DIR = bin
 SRC_DIR = src
 KERNEL_DIR = $(SRC_DIR)/kernel
@@ -12,7 +13,7 @@ KERNEL_DIR = $(SRC_DIR)/kernel
 #   make run EXTRA_CFLAGS="-DPAGER_TEST -DPAGER_PROBE"
 EXTRA_CFLAGS ?=
 
-CFLAGS = -m32 -ffreestanding -nostdlib -nostartfiles -Wall -Wextra -std=c99 -I$(SRC_DIR)/headers -I$(SRC_DIR)/lib -I$(SRC_DIR)/home/lib -fno-stack-protector -fno-pic -fno-builtin -fno-asynchronous-unwind-tables -mno-sse -mno-mmx -mno-80387 -MMD -MP $(EXTRA_CFLAGS)
+CFLAGS = -m32 -ffreestanding -nostdlib -nostartfiles -Wall -Wextra -std=c99 -I$(SRC_DIR)/headers -I$(SRC_DIR)/lib -I$(SRC_DIR)/home/lib -fno-stack-protector -fno-pic -fno-builtin -fno-asynchronous-unwind-tables -mno-sse -mno-mmx -MMD -MP $(EXTRA_CFLAGS)
 LDFLAGS = -m elf_i386 -T $(KERNEL_DIR)/linker.ld
 ASMFLAGS_BIN = -f bin
 ASMFLAGS_ELF = -f elf32
@@ -25,6 +26,22 @@ DEPS := $(wildcard $(BUILD_DIR)/*.d)
 
 PROG_SRCS = $(wildcard src/home/*.c)
 PROGS = $(patsubst src/home/%.c,$(BUILD_DIR)/prog_%.bin,$(PROG_SRCS))
+
+# Userspace library: only linked into programs that reference its symbols.
+MIRROR_SRC = $(SRC_DIR)/home/lib/mirror.c
+MIRROR_LIB = $(BUILD_DIR)/libmirror.a
+
+# Userspace C library (allocator, stdlib, stdio); same lazy-link treatment.
+LIBC_SRCS = $(SRC_DIR)/home/lib/libc.c $(SRC_DIR)/home/lib/stdio.c
+LIBC_LIB = $(BUILD_DIR)/libc.a
+
+# Vendored TinyCC core. It is built into its own archive and linked only into
+# the tcc program, so the rest of the image is unaffected.
+TCC_DIR = thirdparty/tinycc
+TCC_CFLAGS = $(CFLAGS) -I$(TCC_DIR) -I$(BUILD_DIR)
+TCC_OBJ = $(BUILD_DIR)/tcc_libtcc.o
+TCC_LIB = $(BUILD_DIR)/libtcc.a
+LIBGCC = $(shell $(CC) -m32 -print-libgcc-file-name)
 
 all: $(BUILD_DIR)/OS.bin $(DISK_IMG)
 
@@ -55,8 +72,46 @@ $(BUILD_DIR)/kernel.bin: $(BUILD_DIR)/kernel.elf | $(BUILD_DIR)
 $(BUILD_DIR)/prog_%.o: src/home/%.c Makefile | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -ffunction-sections -c $< -o $@
 
-$(BUILD_DIR)/prog_%.elf: $(BUILD_DIR)/prog_%.o src/home/prog.ld | $(BUILD_DIR)
-	$(LD) -m elf_i386 -T src/home/prog.ld -o $@ $<
+$(BUILD_DIR)/prog_%.elf: $(BUILD_DIR)/prog_%.o $(MIRROR_LIB) $(LIBC_LIB) src/home/prog.ld | $(BUILD_DIR)
+	$(LD) -m elf_i386 -T src/home/prog.ld --no-warn-rwx-segments -o $@ $< $(MIRROR_LIB) $(LIBC_LIB) $(LIBGCC)
+
+$(BUILD_DIR)/mirror.o: $(MIRROR_SRC) Makefile | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(MIRROR_LIB): $(BUILD_DIR)/mirror.o | $(BUILD_DIR)
+	$(AR) rcs $@ $^
+
+$(BUILD_DIR)/libc.o: $(SRC_DIR)/home/lib/libc.c Makefile | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/stdio.o: $(SRC_DIR)/home/lib/stdio.c Makefile | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/setjmp.o: $(SRC_DIR)/home/lib/setjmp.asm | $(BUILD_DIR)
+	$(ASM) $(ASMFLAGS_ELF) $< -o $@
+
+$(LIBC_LIB): $(BUILD_DIR)/libc.o $(BUILD_DIR)/stdio.o $(BUILD_DIR)/setjmp.o | $(BUILD_DIR)
+	$(AR) rcs $@ $^
+
+# TinyCC: conftest.c builds the tiny c2str host tool that turns
+# include/tccdefs.h into the string table tccdefs_.h.
+$(BUILD_DIR)/c2str: $(TCC_DIR)/conftest.c | $(BUILD_DIR)
+	$(CC) -DC2STR $< -o $@
+
+$(BUILD_DIR)/tccdefs_.h: $(TCC_DIR)/include/tccdefs.h $(BUILD_DIR)/c2str | $(BUILD_DIR)
+	$(BUILD_DIR)/c2str $< $@
+
+$(TCC_OBJ): $(TCC_DIR)/libtcc.c $(BUILD_DIR)/tccdefs_.h Makefile | $(BUILD_DIR)
+	$(CC) $(TCC_CFLAGS) -c $< -o $@
+
+$(TCC_LIB): $(TCC_OBJ) | $(BUILD_DIR)
+	$(AR) rcs $@ $^
+
+$(BUILD_DIR)/prog_tcc.o: src/home/tcc.c $(TCC_DIR)/libtcc.h Makefile | $(BUILD_DIR)
+	$(CC) $(TCC_CFLAGS) -ffunction-sections -c $< -o $@
+
+$(BUILD_DIR)/prog_tcc.elf: $(BUILD_DIR)/prog_tcc.o $(TCC_LIB) $(LIBC_LIB) src/home/prog.ld | $(BUILD_DIR)
+	$(LD) -m elf_i386 -T src/home/prog.ld --no-warn-rwx-segments -o $@ $< $(TCC_LIB) $(LIBC_LIB) $(LIBGCC)
 
 $(BUILD_DIR)/prog_%.bin: $(BUILD_DIR)/prog_%.elf | $(BUILD_DIR)
 	$(OBJCOPY) -O binary $< $@
@@ -113,6 +168,13 @@ run: $(DISK_IMG)
 headless: $(DISK_IMG)
 	-pkill qemu 2>/dev/null
 	qemu-system-x86_64 -display curses -monitor none -no-reboot -drive format=raw,file=$(DISK_IMG)
+
+# Boot the image headless and run the regression scenarios (see tests/).
+test: $(DISK_IMG)
+	-pkill qemu 2>/dev/null
+	python3 tests/run_tests.py $(DISK_IMG)
+
+.PHONY: all clean run headless test release
 
 release: $(DISK_IMG) $(BUILD_DIR)/OS.bin
 	@mkdir -p release releases

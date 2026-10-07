@@ -14,9 +14,10 @@ int main(int argc, char **argv)
   if (!f)
     return 1;
   char zeros[512] = {0};
-  struct file_entry entry1 = {0}, entry2 = {0};
+  struct file_entry entry1 = {0}, entry2 = {0}, entry3 = {0};
   strcpy(entry1.name, "readme.txt");
   strcpy(entry2.name, "hello.txt");
+  strcpy(entry3.name, "demo.c");
 
   fseek(f, FS_DIR_LBA * 512, SEEK_SET);
   for (int i = 0; i < FS_DIR_SECTORS; i++)
@@ -30,7 +31,7 @@ int main(int argc, char **argv)
   fwrite(text, 1, strlen(text), f);
   entry1.lba = next_lba;
   entry1.size = strlen(text);
-  next_lba += 1;
+  next_lba += (strlen(text) + 511) / 512;
 
   // FILE 2
   fseek(f, next_lba * 512, SEEK_SET);
@@ -38,12 +39,42 @@ int main(int argc, char **argv)
   fwrite(text2, 1, strlen(text2), f);
   entry2.lba = next_lba;
   entry2.size = strlen(text2);
-  next_lba += 1;
+  next_lba += (strlen(text2) + 511) / 512;
+
+  // FILE 3 (demo source for the on-device tcc compiler)
+  fseek(f, next_lba * 512, SEEK_SET);
+  const char *text3 =
+      "/* tcc demo: print fib(10) when a shell argument starts with 'f',\n"
+      "   otherwise print the argument count main() received. print() and\n"
+      "   print_dec() exist in both the compile-and-run symbol table and the\n"
+      "   flat -o image runtime, so the same file works either way. */\n"
+      "int magic(int n) { return n < 2 ? n : magic(n - 1) + magic(n - 2); }\n"
+      "int main(int argc, char **argv)\n"
+      "{\n"
+      "    if (argc >= 2 && argv[1][0] == 'f')\n"
+      "    {\n"
+      "        int r = magic(10);\n"
+      "        print(\"demo: fib(10)=\");\n"
+      "        print_dec(r);\n"
+      "        print(\"\\n\");\n"
+      "        return r;\n"
+      "    }\n"
+      "    print(\"demo: argc=\");\n"
+      "    print_dec(argc);\n"
+      "    print(\"\\n\");\n"
+      "    return argc;\n"
+      "}\n";
+  fwrite(text3, 1, strlen(text3), f);
+  entry3.lba = next_lba;
+  entry3.size = strlen(text3);
+  next_lba += (strlen(text3) + 511) / 512;
 
   // PROGRAMS from argv
   struct file_entry entries[FS_ENTRIES_PER_SECTOR];
   memset(entries, 0, sizeof entries);
   int n_entries = 2;
+  entries[2] = entry3;
+  n_entries = 3;
   for (int i = 1; i < argc; i++)
   {
     FILE *prog = fopen(argv[i], "rb");

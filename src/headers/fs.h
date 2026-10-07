@@ -10,6 +10,24 @@
 #define FS_ENTRIES_PER_SECTOR 16
 #define FS_DIR 1
 #define FS_FILE 0
+
+/* --- open file handles ------------------------------------------------- */
+#define FS_MAX_OPEN 8
+#define FS_FD_BASE  3        /* fds 0-2 are reserved for a future stdio */
+
+/* open() flags */
+#define FS_O_RDONLY 0x0001
+#define FS_O_WRONLY 0x0002
+#define FS_O_RDWR   0x0004
+#define FS_O_CREAT  0x0008
+#define FS_O_TRUNC  0x0010
+#define FS_O_APPEND 0x0020
+
+/* lseek() whence */
+#define FS_SEEK_SET 0
+#define FS_SEEK_CUR 1
+#define FS_SEEK_END 2
+
 struct superblock
 {
     char magic[FS_MAGIC_LEN];     /* "LUNFS1" — lets us verify the disk */
@@ -35,5 +53,16 @@ int fs_cat(const char *name);
 int fs_read(const char *name, char *buf, unsigned int max);
 int fs_ls_buf(const char *name, char *buf, unsigned int max);
 int fs_append(const char *dir, const char *path);
+
+/* Read handles stream straight from the disk. A writable handle keeps the
+   whole file in a kernel buffer and writes it back on close(). Only one
+   writable handle can be open at once, since they share that buffer. */
+int  fs_open(const char *name, int flags);
+int  fs_read_fd(int fd, char *buf, unsigned int n);
+int  fs_write_fd(int fd, const char *buf, unsigned int n);
+int  fs_seek(int fd, int off, int whence);
+int  fs_close(int fd);
+void fs_close_all(void);
+int  fs_unlink(const char *name);
 
 #endif

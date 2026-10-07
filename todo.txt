@@ -35,7 +35,6 @@
 (B) 2026-09-28 map each PT_LOAD into the process page directory +LunariaOS @loader @projects @self
 (B) 2026-09-28 zero .bss where p_memsz exceeds p_filesz +LunariaOS @loader @projects @self
 (C) 2026-09-28 jump to e_entry instead of the hardcoded USER_BASE (shell.c:138) +LunariaOS @loader @projects @self
-(C) 2026-09-28 pass argv and envp to the new entry point +LunariaOS @loader @projects @self
 (C) 2026-09-28 drop the fixed 0x400000 link address in prog.ld +LunariaOS @loader @projects @self
 @segments — actually lock down ring 3
 (C) 2026-09-28 per-process tss.esp0 instead of the hardcoded 0x90000 (gdt.c:69) +LunariaOS @segments @projects @self
@@ -55,3 +54,14 @@
 (D) 2026-09-28 handle \b +LunariaOS @vga @projects @self
 (D) 2026-09-28 scroll up when bkspc deletes past the top-left (vga.c:142) +LunariaOS @vga @projects @self
 (D) 2026-09-28 showCursor(): drive the hardware cursor or delete the empty stub (vga.c:162) +LunariaOS @vga @projects @self
+@fs — grow the filesystem toward a compiler
+(B) 2026-10-07 free-space allocator so rewrites and deletes reclaim sectors (fs.c) +LunariaOS @fs @projects @self
+(B) 2026-10-07 allow more than one writable file handle (per-handle buffers) +LunariaOS @fs @projects @self
+(C) 2026-10-07 errno and real error codes from the file syscalls +LunariaOS @fs @projects @self
+@tcc — turn the embedded compiler into a real on-device toolchain
+(A) 2026-10-07 write ELF object/executable output and full option parsing (flat binary -o output is done) +LunariaOS @tcc @projects @self
+(B) 2026-10-07 build a libtcc1.a (alloca, stack probes, helper objects) for targeted code +LunariaOS @tcc @projects @self
+(B) 2026-10-07 link generated programs against libc.a/libtcc1.a from disk (symbols now come from a tcc_add_symbol table in tcc.c) +LunariaOS @tcc @projects @self
+(B) 2026-10-07 give the compiler a real sysinclude path on disk (its own headers) +LunariaOS @tcc @projects @self
+(C) 2026-10-07 wall clock for __DATE__/__TIME__ instead of the Unix epoch +LunariaOS @tcc @projects @self
+(C) 2026-10-07 pin CONFIG_TRIPLET/OS predefines to Lunaria instead of the Linux host +LunariaOS @tcc @projects @self

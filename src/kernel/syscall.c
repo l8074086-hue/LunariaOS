@@ -37,14 +37,7 @@ static void user_reboot(void)
 
 static void (*exit_target)(void) = exit_to_shell;
 
-#ifdef PAGER_TEST
-static unsigned int firstfix[8];   /* snapshot of the first repaired fault */
-static unsigned int firstfix2[8];
-static unsigned int raww[8];
-/* every fault seen this boot, in order: eip, cs, cr2, err */
-static unsigned int flog[48];
-static int flogn;
-#endif
+
 
 static void sys_write(const char *buf, unsigned int len)
 {
@@ -99,23 +92,47 @@ void syscall_handler(struct regs *r, unsigned int *frame)
         case 9:
             if (r->ecx < 80 && r->edx < 25)
             {
-                term_putchar_at(wm_current(), (char)r->ebx, r->ecx, r->edx, (color_t)r->esi);
-                wm_blit(wm_current());
+                terminal_t *t = wm_current();
+                term_putchar_at(t, (char)r->ebx, r->ecx, r->edx, (color_t)r->esi);
+                wm_blit_row(t, r->edx);
             }
             break;
         case 10:
             if (r->ebx < 80 && r->ecx < 25)
             {
                 terminal_t *t = wm_current();
+                int oy = t->cursor_y;
                 t->cursor_x = r->ebx;
                 t->cursor_y = r->ecx;
-                wm_blit(t);
+                /* the caret can be on either row; refresh both so the old
+                   one is un-inverted and the new one drawn */
+                wm_blit_row(t, oy);
+                if (oy != t->cursor_y)
+                    wm_blit_row(t, t->cursor_y);
             }
             break;
         case 11:
             /* grow the heap; the pages behind it are demand paged, and a
                failed grow comes back as the unchanged old break */
             r->eax = vm_sbrk(r->ebx);
+            break;
+        case 12:
+            r->eax = fs_open((const char *)r->ebx, (int)r->ecx);
+            break;
+        case 13:
+            r->eax = fs_read_fd((int)r->ebx, (char *)r->ecx, r->edx);
+            break;
+        case 14:
+            r->eax = fs_write_fd((int)r->ebx, (const char *)r->ecx, r->edx);
+            break;
+        case 15:
+            r->eax = fs_seek((int)r->ebx, (int)r->ecx, (int)r->edx);
+            break;
+        case 16:
+            r->eax = fs_close((int)r->ebx);
+            break;
+        case 17:
+            r->eax = fs_unlink((const char *)r->ebx);
             break;
         default:
             break;
@@ -135,62 +152,14 @@ static void uhex(unsigned int v, char *buf)
 
 int fault_handler(struct regs *r, unsigned int cr2, unsigned int err, int vector)
 {
-    (void)r;
-
-#ifdef PAGER_TEST
-    {
-        /* snapshot the CPU frame *before* anything else can fault */
-        volatile unsigned int *raw = (volatile unsigned int *)0x6000;
-        if (flogn < 40)
-        {
-            flog[flogn++] = raw[3];   /* eip */
-            flog[flogn++] = raw[4];   /* cs  */
-            flog[flogn++] = cr2;
-            flog[flogn++] = err;
-        }
-    }
-#endif
+    (void)r;   /* only the PAGER_TEST log below reads the saved registers */
 
     /* A missing page inside the ring-3 window is not an error: hand it a
        zeroed page and let the CPU retry the instruction. A fault on an
        already-present page is a real protection violation, so it falls
        through to the report below. */
     if (vector == 0x0E && vm_fault(cr2))
-    {
-#ifdef PAGER_TEST
-        if (!firstfix[0])
-        {
-            unsigned int cr2now;
-            __asm__ volatile("mov %%cr2, %0" : "=r"(cr2now));
-            firstfix[0] = 1;
-            firstfix[1] = flog[flogn - 4];  /* eip */
-            firstfix[2] = flog[flogn - 3];  /* cs  */
-            firstfix[3] = flog[flogn - 2];  /* cr2 as passed */
-            firstfix[4] = r->eax;
-            firstfix[5] = r->ecx;
-            firstfix[6] = r->edx;
-            firstfix[7] = cr2now;
-            firstfix2[0] = r->ebp;
-            firstfix2[1] = *(volatile unsigned int *)(r->ebp + 4);
-            firstfix2[2] = r->edi;
-            firstfix2[3] = r->ebx;
-            firstfix2[4] = r->esi;
-            /* raw pushad words, so the layout can be checked by hand */
-            firstfix2[5] = r->eax;
-            firstfix2[6] = ((volatile unsigned int *)r)[2];
-            firstfix2[7] = ((volatile unsigned int *)r)[4];
-            raww[0] = ((volatile unsigned int *)r)[0];
-            raww[1] = ((volatile unsigned int *)r)[1];
-            raww[2] = ((volatile unsigned int *)r)[2];
-            raww[3] = ((volatile unsigned int *)r)[3];
-            raww[4] = ((volatile unsigned int *)r)[4];
-            raww[5] = ((volatile unsigned int *)r)[5];
-            raww[6] = ((volatile unsigned int *)r)[6];
-            raww[7] = ((volatile unsigned int *)r)[7];
-        }
-#endif
         return 1;
-    }
 
     char vbuf[12];
     char abuf[9];
@@ -216,7 +185,7 @@ int fault_handler(struct regs *r, unsigned int cr2, unsigned int err, int vector
 
 #ifdef PAGER_TEST
     {
-        char msg[1400];
+        char msg[448];
         unsigned int o = 0;
         const char *m;
         volatile unsigned int *raw = (volatile unsigned int *)0x6000;
@@ -299,54 +268,6 @@ int fault_handler(struct regs *r, unsigned int cr2, unsigned int err, int vector
         for (; *m; m++) msg[o++] = *m;
         itoa((int)vm_faults(), num);
         for (char *p = num; *p; p++) msg[o++] = *p;
-        {   /* first repaired fault, to see what the retry re-ran */
-            static const char *labels[7] = { " f_eip=", " f_cs=", " f_cr2=",
-                                             " f_eax=", " f_ecx=", " f_edx=",
-                                             " f_cr2b=" };
-            for (int k = 0; k < 7; k++)
-            {
-                for (m = labels[k]; *m; m++) msg[o++] = *m;
-                uhex(firstfix[1 + k], num);
-                for (char *p = num; *p; p++) msg[o++] = *p;
-            }
-            static const char *labels2[5] = { " f_ebp=", " f_ret=", " f_edi=",
-                                              " f_ebx=", " f_esi=" };
-            for (int k = 0; k < 5; k++)
-            {
-                for (m = labels2[k]; *m; m++) msg[o++] = *m;
-                uhex(firstfix2[k], num);
-                for (char *p = num; *p; p++) msg[o++] = *p;
-            }
-            for (int k = 0; k < 4; k++)
-            {
-                for (m = " vmd="; *m; m++) msg[o++] = *m;
-                uhex(vm_dbg[k], num);
-                for (char *p = num; *p; p++) msg[o++] = *p;
-            }
-            for (int k = 0; k < 8; k++)
-            {
-                for (m = " w="; *m; m++) msg[o++] = *m;
-                uhex(raww[k], num);
-                for (char *p = num; *p; p++) msg[o++] = *p;
-            }
-        }
-        {   /* full fault sequence this boot */
-            for (int k = 0; k + 3 < flogn; k += 4)
-            {
-                for (m = " |e="; *m; m++) msg[o++] = *m;
-                uhex(flog[k], num);
-                for (char *p = num; *p; p++) msg[o++] = *p;
-                for (m = " c="; *m; m++) msg[o++] = *m;
-                uhex(flog[k + 1], num);
-                for (char *p = num; *p; p++) msg[o++] = *p;
-                for (m = " a="; *m; m++) msg[o++] = *m;
-                uhex(flog[k + 2], num);
-                for (char *p = num; *p; p++) msg[o++] = *p;
-                for (m = " r="; *m; m++) msg[o++] = *m;
-                uhex(flog[k + 3], num);
-                for (char *p = num; *p; p++) msg[o++] = *p;
-            }
-        }
         msg[o++] = '\n';
         msg[o] = '\0';
         fs_write("FAULT.LOG", FS_FILE, msg, o);

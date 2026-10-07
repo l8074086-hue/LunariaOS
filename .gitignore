@@ -4,3 +4,5 @@ a.out
 cat.sh
 docs.sh
 releases/
+
+__pycache__/

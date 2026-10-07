@@ -8,6 +8,7 @@ void paging_init(void);
 
 uint32_t memory_total_kb(void);
 uint32_t memory_free_frames(void);
+uint32_t memory_total_frames(void);
 
 /* --- per-process address spaces ---------------------------------------
    The kernel half of every address space is the same identity map, so a
@@ -25,6 +26,5 @@ int      vm_fault(uint32_t addr);    /* 1 = mapped, retry; 0 = fatal       */
 void     vm_note_load(uint32_t size);/* record program size for vm_sbrk()  */
 uint32_t vm_sbrk(uint32_t inc);
 uint32_t vm_faults(void);
-extern unsigned int vm_dbg[8];
 
 #endif

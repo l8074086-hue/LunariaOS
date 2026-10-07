@@ -11,10 +11,26 @@ extern void idt_init(void);
 extern void gdt_init(void);
 extern void shell_run(void);
 
+/* Let ring-3 code use the x87 unit. The core compiler does its constant
+   folding in long double, so the FPU has to be live before userspace runs.
+   The kernel itself never touches it. */
+static void fpu_init(void)
+{
+    unsigned int cr0;
+
+    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
+    cr0 &= ~(1u << 2);      /* EM: use the hardware FPU, not emulation */
+    cr0 &= ~(1u << 3);      /* TS: no lazy context switch */
+    cr0 |= (1u << 1);       /* MP: monitor coprocessor */
+    __asm__ volatile("mov %0, %%cr0" : : "r"(cr0));
+    __asm__ volatile("fninit");
+}
+
 void kmain(void)
 {
     gdt_init();
     idt_init();
+    fpu_init();
     memory_init();
     paging_init();
     pit_init(100);
@@ -46,7 +62,7 @@ void kmain(void)
 
 #ifdef PAGER_TEST
     {
-        extern void shell_run_program(const char *name);
+        extern void shell_run_program(const char *name, int argc, char **argv);
         char log[192];
         char num[12];
         unsigned int cr0, cr3;
@@ -89,7 +105,10 @@ void kmain(void)
 #ifdef PAGER_PROBE
         /* faultprobe deliberately reads a kernel page to prove ring-3
            isolation faults, so it only runs when explicitly asked for. */
-        shell_run_program("faultprobe");
+        {
+            char *pa[] = { (char *)"faultprobe", 0 };
+            shell_run_program("faultprobe", 1, pa);
+        }
 #endif
     }
 #endif

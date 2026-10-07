@@ -14,8 +14,10 @@ src/
   headers/            kernel headers shared by kernel and drivers
   lib/                kernel string library (header-only)
   home/               user programs + user-space headers
-    lib/              user API: syscall wrappers, stdio
+    lib/              user API: syscall wrappers, POSIX headers, stdio, C library
 tools/                host tools (fs_seeder.c) built and run on Linux
+thirdparty/
+  tinycc/             vendored TinyCC core for the on-device C compiler
 docs/                 documentation
 ```
 
@@ -41,10 +43,19 @@ The Makefile compiles everything freestanding for 32-bit x86:
 
 - `src/kernel/*.asm` -> object files with NASM
 - `src/kernel/*.c`, `src/drivers/*.c` -> objects with `cc -m32 -ffreestanding
-  -nostdlib` (no libc, no stack protector, no SSE/FPU)
+  -nostdlib` (no libc, no stack protector, no SSE/MMX; the x87 unit is enabled)
 - `src/kernel/linker.ld` links the kernel to `0x7E00`
 - `objcopy -O binary` strips the kernel to a flat binary
 - `src/home/*.c` -> flat user binaries linked at `0x100000` by `src/home/prog.ld`
+- `src/home/lib/mirror.c` -> `bin/libmirror.a`, a static userspace library
+  linked into every user program; archive members are only pulled in when the
+  program references them, so other programs pay nothing for it
+- `src/home/lib/libc.c`, `stdio.c` and `setjmp.asm` -> `bin/libc.a`, the
+  userspace C library (allocator, `string.h`, `ctype.h`, `stdlib.h`, `FILE`
+  streams, POSIX wrappers), linked the same lazy way
+- `thirdparty/tinycc/` -> `bin/libtcc.a`, the embedded TinyCC core, linked only
+  into the `tcc` program. `thirdparty/tinycc/conftest.c` is built on the host
+  as `c2str` to turn `include/tccdefs.h` into `tccdefs_.h`
 - `tools/fs_seeder.c` (a host Linux program) writes the superblock, sample
   files, and the user programs into `bin/disk.img`
 
@@ -83,10 +94,12 @@ See [Writing userspace software](userspace.md) for the full guide.
 
 ## Code style and constraints
 
-- **Language**: C99 (`-std=c99`). Freestanding only — no libc, no
-  `printf`, no `malloc`, no standard headers (except a few like `<stdint.h>`).
-- **No floats**: the kernel is compiled with `-mno-sse -mno-mmx -mno-80387`,
-  so floating point is not available.
+- **Language**: C99 (`-std=c99`). Kernel code is freestanding — no libc, no
+  `printf`, no `malloc`, no standard headers (except a few like `<stdint.h>`);
+  user programs get the userspace C library instead.
+- **No SSE/MMX**: everything is compiled with `-mno-sse -mno-mmx`. x87 is
+  enabled (`fninit` runs at boot), so `float`/`double`/`long double` work;
+  TinyCC relies on `long double` for constant folding.
 - **No comments unless they add real value**; the existing code keeps them
   minimal.
 - Headers under `src/headers/`, `src/lib/`, and `src/home/lib/` should keep
@@ -96,6 +109,8 @@ See [Writing userspace software](userspace.md) for the full guide.
 - Hardware access goes through `src/headers/port.h` (`inb`/`outb`/`inw`/`outw`).
 - Keep the system buildable with `make` before opening a PR; test with
   `make run` or `make headless`.
+- `make test` boots the image headless and runs the regression scenarios in
+  `tests/` (they drive the shell over the QEMU monitor and check the screen).
 
 ## Licensing
 

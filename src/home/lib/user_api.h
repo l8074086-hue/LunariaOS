@@ -12,6 +12,35 @@
 #define SYS_PUTCHAR_AT 9
 #define SYS_GOTO_XY 10
 #define SYS_SBRK 11
+#define SYS_OPEN 12
+#define SYS_READ 13
+#define SYS_FWRITE 14
+#define SYS_SEEK 15
+#define SYS_CLOSE 16
+#define SYS_UNLINK 17
+
+/* open() flags and lseek() whence; keep in step with src/headers/fs.h */
+#define O_RDONLY 0x0001
+#define O_WRONLY 0x0002
+#define O_RDWR   0x0004
+#define O_CREAT  0x0008
+#define O_TRUNC  0x0010
+#define O_APPEND 0x0020
+
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
+
+/* tcc flat binaries: where a compiled `-o` image is baked and loaded.
+   Keep in step with src/headers/user.h. Images are also capped by the
+   disk's 64K writable-file buffer (see fs.c), which is far smaller than
+   the room above TCC_FLAT_BASE, so that cap is the real limit. */
+#define TCC_FLAT_MAGIC0 'L'
+#define TCC_FLAT_MAGIC1 'U'
+#define TCC_FLAT_MAGIC2 'N'
+#define TCC_FLAT_MAGIC3 'B'
+#define TCC_FLAT_BASE   0x680000
+#define TCC_FLAT_MAX    0x10000
 
 #define EXIT_SHELL    0
 #define EXIT_HALT     1
@@ -112,6 +141,49 @@ static inline unsigned int sys_sbrk(unsigned int inc)
 {
     unsigned int r;
     __asm__ volatile("int $0x80" : "=a"(r) : "a"(SYS_SBRK), "b"(inc));
+    return r;
+}
+
+/* File handles. The kernel hands back a small integer >= 3, or -1. */
+static inline int sys_open(const char *name, int flags)
+{
+    int r;
+    __asm__ volatile("int $0x80" : "=a"(r) : "a"(SYS_OPEN), "b"(name), "c"(flags) : "memory");
+    return r;
+}
+
+static inline int sys_read(int fd, char *buf, unsigned int n)
+{
+    int r;
+    __asm__ volatile("int $0x80" : "=a"(r) : "a"(SYS_READ), "b"(fd), "c"(buf), "d"(n) : "memory");
+    return r;
+}
+
+static inline int sys_fwrite(int fd, const char *buf, unsigned int n)
+{
+    int r;
+    __asm__ volatile("int $0x80" : "=a"(r) : "a"(SYS_FWRITE), "b"(fd), "c"(buf), "d"(n) : "memory");
+    return r;
+}
+
+static inline int sys_lseek(int fd, int off, int whence)
+{
+    int r;
+    __asm__ volatile("int $0x80" : "=a"(r) : "a"(SYS_SEEK), "b"(fd), "c"(off), "d"(whence));
+    return r;
+}
+
+static inline int sys_close(int fd)
+{
+    int r;
+    __asm__ volatile("int $0x80" : "=a"(r) : "a"(SYS_CLOSE), "b"(fd));
+    return r;
+}
+
+static inline int sys_unlink(const char *name)
+{
+    int r;
+    __asm__ volatile("int $0x80" : "=a"(r) : "a"(SYS_UNLINK), "b"(name));
     return r;
 }
 

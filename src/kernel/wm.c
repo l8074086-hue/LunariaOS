@@ -151,3 +151,19 @@ void wm_blit(const terminal_t *t)
     vga[idx] = (char)((attr >> 4) | (attr << 4));
   }
 }
+
+/* one row instead of the whole screen; the caret is re-inverted when it
+   sits on this row, so a row copy always leaves vga in sync with cells */
+void wm_blit_row(const terminal_t *t, int y)
+{
+  char *vga = (char *)0xb8000;
+  if (y < 0 || y > 24)
+    return;
+  memcpy(vga + y * 80 * 2, t->cells + y * 80 * 2, 80 * 2);
+  if (t->cursor_y == y && t->cursor_x >= 0 && t->cursor_x <= 79)
+  {
+    int idx = (y * 80 + t->cursor_x) * 2 + 1;
+    unsigned char attr = (unsigned char)vga[idx];
+    vga[idx] = (char)((attr >> 4) | (attr << 4));
+  }
+}

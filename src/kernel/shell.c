@@ -32,8 +32,9 @@ static void cmd_run(int argc, char **argv);
 static void cmd_uptime(int argc, char **argv);
 static void cmd_sleep(int argc, char **argv);
 static void cmd_banner(int argc, char **argv);
+static void cmd_free(int argc, char **argv);
 
-void shell_run_program(const char *name);
+void shell_run_program(const char *name, int argc, char **argv);
 
 static const struct command commands[] = {
     { "help", cmd_help },
@@ -50,6 +51,7 @@ static const struct command commands[] = {
     { "uptime", cmd_uptime },
     { "sleep", cmd_sleep },
     { "banner", cmd_banner},
+    {"free", cmd_free},
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);
@@ -105,13 +107,75 @@ static void cmd_run(int argc, char **argv)
 {
     if (argc < 2)
     {
-        term_print_color(wm_current(), "usage: run <file>\n", VGA_COLOR(BLACK, RED));
+        term_print_color(wm_current(), "usage: run <file> [args...]\n", VGA_COLOR(BLACK, RED));
         return;
     }
-    shell_run_program(argv[1]);
+    shell_run_program(argv[1], argc - 1, &argv[1]);
 }
 
-void shell_run_program(const char *name)
+/* Build the ring-3 argument block on the new process stack and return the
+   initial esp. Runs with the process page directory live (after vm_attach):
+   the writes land in the user window and are demand-paged by the same
+   vm_fault path that serves the image load. Layout, high to low:
+
+       argument strings
+       char **argv (NULL-terminated)
+       char **envp = { NULL }
+       dummy return address, argc, argv    <- initial esp (cdecl entry)
+
+   Everything sits above the initial esp, so the program's own stack grows
+   down away from it. */
+static unsigned int build_user_args(int argc, char **argv)
+{
+    unsigned int ptrs[MAX_ARGS + 1];
+    unsigned int argv_ptr;
+    unsigned int sp = USER_STACK;
+
+    if (argc > MAX_ARGS)
+        argc = MAX_ARGS;
+
+    /* strings, from the top of the stack down */
+    for (int i = 0; i < argc; i++)
+    {
+        unsigned int len = (unsigned int)strlen(argv[i]) + 1;
+        sp -= len;
+        for (unsigned int j = 0; j < len; j++)
+            ((char *)sp)[j] = argv[i][j];
+        ptrs[i] = sp;
+    }
+    ptrs[argc] = 0;
+
+    sp &= ~3u;                       /* align down to 4 bytes */
+
+    /* char **argv, NULL-terminated */
+    sp -= (unsigned int)(argc + 1) * 4;
+    argv_ptr = sp;
+    for (int i = 0; i <= argc; i++)
+        ((unsigned int *)sp)[i] = ptrs[i];
+
+    /* char **envp = { NULL } */
+    sp -= 4;
+    ((unsigned int *)sp)[0] = 0;
+
+    /* cdecl entry frame: a C _start(int argc, char **argv) finds argc at
+       [esp+4] and argv at [esp+8]; [esp] is a throwaway return address. */
+    sp -= 12;
+    ((unsigned int *)sp)[0] = 0;
+    ((unsigned int *)sp)[1] = (unsigned int)argc;
+    ((unsigned int *)sp)[2] = argv_ptr;
+    return sp;
+}
+
+/* Little-endian u32 read (used by the flat-binary header parse). */
+static unsigned int rd32_le(const char *p)
+{
+    return (unsigned int)(unsigned char)p[0]
+         | ((unsigned int)(unsigned char)p[1] << 8)
+         | ((unsigned int)(unsigned char)p[2] << 16)
+         | ((unsigned int)(unsigned char)p[3] << 24);
+}
+
+void shell_run_program(const char *name, int argc, char **argv)
 {
     /* Build a private address space and switch to it *before* loading, so
        the program image lands in pages this process will keep and a stale
@@ -124,35 +188,6 @@ void shell_run_program(const char *name)
     }
     vm_attach(dir);
 
-#ifdef PAGER_TEST
-    {   /* TEMP: faulting copy, then show what vm_fault captured */
-        char b[12];
-        unsigned int vals[5];
-        vm_dbg[4] = vm_dbg[5] = vm_dbg[6] = vm_dbg[7] = 0xAAAAAAAA;
-        memcpy((void *)(USER_BASE + 0x2000), (void *)0x7E00, 512);
-        vals[0] = vm_dbg[0];
-        vals[1] = vm_dbg[1];
-        vals[2] = vm_dbg[2];
-        vals[3] = vm_dbg[3];
-        vals[4] = *(volatile unsigned int *)(USER_BASE + 0x2000);
-        terminal_t *t = wm_current();
-        for (int k = 0; k < 5; k++)
-        {
-            for (int i = 7; i >= 0; i--)
-            {
-                unsigned int d = vals[k] & 0xF;
-                b[i] = d < 10 ? (char)('0' + d) : (char)('A' + d - 10);
-                vals[k] >>= 4;
-            }
-            b[8] = 0;
-            term_print_color(t, k == 4 ? " dst0=" : " v=", VGA_COLOR(BLACK, CYAN));
-            term_print_color(t, b, VGA_COLOR(BLACK, CYAN));
-        }
-        term_print_color(t, "\n", VGA_COLOR(BLACK, CYAN));
-        wm_blit(t);
-    }
-#endif
-
     int size = fs_read(name, (char *)USER_BASE, USER_PROG_MAX);
     if (size < 0)
     {
@@ -161,10 +196,40 @@ void shell_run_program(const char *name)
         return;
     }
 
+    /* tcc flat binary? 12-byte header: "LUNB" + u32 image size + u32 entry
+       offset. tcc baked the image for TCC_FLAT_BASE, so copy it there and
+       enter it instead of the normal USER_BASE image. */
+    {
+        char *img = (char *)USER_BASE;
+        if (size >= 12
+            && img[0] == TCC_FLAT_MAGIC0 && img[1] == TCC_FLAT_MAGIC1
+            && img[2] == TCC_FLAT_MAGIC2 && img[3] == TCC_FLAT_MAGIC3)
+        {
+            unsigned int fsize = rd32_le(img + 4);
+            unsigned int fentry = rd32_le(img + 8);
+            if (fsize > (unsigned int)size - 12
+                || fsize + 12u > TCC_FLAT_MAX
+                || TCC_FLAT_BASE + fsize > USER_STACK
+                || fentry >= fsize)
+            {
+                term_print_color(wm_current(), "run: bad flat binary\n", VGA_COLOR(BLACK, RED));
+                vm_detach();
+                return;
+            }
+
+            memcpy((void *)TCC_FLAT_BASE, img + 12, fsize);
+            vm_note_load(fsize);
+            wm_current()->prompt = 0;
+            kbd_flush();
+            enter_user(TCC_FLAT_BASE + fentry, build_user_args(argc, argv));
+            return;
+        }
+    }
+
     vm_note_load((unsigned int)size);
     wm_current()->prompt = 0;
     kbd_flush();
-    enter_user(USER_BASE, USER_STACK);
+    enter_user(USER_BASE, build_user_args(argc, argv));
 }
 
 static void cmd_uptime(int argc, char **argv)
@@ -178,12 +243,61 @@ static void cmd_uptime(int argc, char **argv)
     term_print_color(wm_current(), " seconds\n", VGA_COLOR(BLACK,WHITE));
 }
 
+/* Reports the physical frame allocator and the pager. Hand-rolled instead of
+   printf since there is no formatting in the kernel yet. */
+static void cmd_free(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    terminal_t *t = wm_current();
+    color_t k = VGA_COLOR(BLACK, WHITE);
+    color_t v = VGA_COLOR(BLACK, YELLOW);
+    color_t l = VGA_COLOR(BLACK, CYAN);
+    char buf[12];
+
+    uint32_t total_f = memory_total_frames();
+    uint32_t free_f = memory_free_frames();
+
+    term_print_color(t, "  total  ", k);
+    itoa(memory_total_kb(), buf);
+    term_print_color(t, buf, v);
+    term_print_color(t, " KB\n", k);
+
+    term_print_color(t, "  frames ", k);
+    itoa(total_f, buf);
+    term_print_color(t, buf, v);
+    term_print_color(t, " total, ", k);
+    itoa(free_f, buf);
+    term_print_color(t, buf, v);
+    term_print_color(t, " free, ", k);
+    itoa(total_f - free_f, buf);
+    term_print_color(t, buf, v);
+    term_print_color(t, " used\n", k);
+
+    /* frames -> KB, rounding down */
+    itoa((free_f * 4) / 1024, buf);
+    term_print_color(t, "  heap   ", k);
+    term_print_color(t, buf, v);
+    term_print_color(t, " KB free\n", k);
+
+    term_print_color(t, "  ring3  ", k);
+    term_print_color(t, "0x400000-0x800000 on demand, ", l);
+    itoa(vm_faults(), buf);
+    term_print_color(t, buf, v);
+    term_print_color(t, " faults served\n", k);
+}
+
 static void cmd_sleep(int argc, char **argv)
 {
     if (argc > 1)
     {
         pit_sleep(atoi(argv[1]));
     }
+}
+
+static void cmd_df(int argc, char **argv)
+{
+
 }
 
 void shell_run(void);
@@ -193,6 +307,12 @@ void exit_to_shell(void)
     /* reached from the iret in isr0x80, so the process directory is still
        the active one: hand the CPU back to the kernel map and release it */
     vm_detach();
+    /* flush and drop any file handles the program left open */
+    fs_close_all();
+    /* a `run` command never returns to execute(), so its t->len = 0 was
+       skipped: drop the consumed line before the shell reads the next one,
+       or everything typed now lands after the old command's embedded NUL */
+    wm_current()->len = 0;
     shell_run();
 }
 

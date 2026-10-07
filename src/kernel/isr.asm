@@ -48,7 +48,8 @@ isrfault%1:
     push %1                    ; vector
     push eax                   ; error code
     push edx                   ; cr2
-    push esp                   ; saved registers
+    lea eax, [esp + 12]        ; the pushad block, not the args below it
+    push eax                   ; struct regs *
     call fault_handler
     add esp, 16
     popad
@@ -61,28 +62,33 @@ isrfault%1:
 ;  [0]=vector [1]=cr2 [2]=error code [3]=eip [4]=cs
 global isrfault0x0E
 isrfault0x0E:
+    cli
+    pushad                 ; save the faulting registers FIRST: the raw
+                           ; capture below clobbers eax, and pushad must
+                           ; capture the real eax or iretd would retry the
+                           ; faulting instruction with the wrong operand.
+    mov eax, [esp + 32]    ; CPU frame sits above the pushad block
+    mov dword [0x6008], eax
+    mov eax, [esp + 36]
+    mov dword [0x600C], eax
+    mov eax, [esp + 40]
+    mov dword [0x6010], eax
     mov eax, cr2
     mov dword [0x6000], 0x0E
     mov dword [0x6004], eax
-    mov eax, [esp]
-    mov dword [0x6008], eax
-    mov eax, [esp + 4]
-    mov dword [0x600C], eax
-    mov eax, [esp + 8]
-    mov dword [0x6010], eax
-    pushad
-    mov eax, [esp + 32]
+    mov eax, [esp + 32]    ; error code, again
     mov edx, cr2
-    push 0x0E
-    push eax
-    push edx
-    push esp
+    push 0x0E                    ; vector
+    push eax                     ; error code
+    push edx                     ; cr2
+    lea eax, [esp + 12]          ; the pushad block, not the args below it
+    push eax                     ; struct regs *
     call fault_handler
     add esp, 16
     test eax, eax
     jz .fatal              ; not recoverable, handler has already stopped us
     popad
-    add esp, 4
+    add esp, 4             ; drop the CPU-pushed error code
     iretd                  ; retry the instruction that faulted
 .fatal:
     cli
