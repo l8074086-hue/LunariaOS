@@ -287,6 +287,22 @@ Loading uses `sys_read_file()` and saving uses `sys_write_file()`.
 Non-printable bytes from a loaded file are replaced with `.` so binary
 files cannot corrupt the display.
 
+## The paint drawing app
+
+`run paint` is a text-mode drawing app ([`src/home/paint.c`](../src/home/paint.c)).
+It is deliberately written against the raw syscalls (`sys_putchar_at`,
+`sys_getc`) rather than Mirror, so the whole file compiles with the on-disk
+tcc too:
+
+* an 80x24 canvas with a status bar on the bottom row showing the current
+  brush, colour and a reminder of the keys
+* the pen is always down while the arrow keys move, so dragging draws
+  (etch-a-sketch style); printable keys pick a new brush and stamp it,
+  backspace toggles the eraser, `enter` clears, `esc` leaves
+* `[` and `]` cycle the 16 foreground colours; everything is drawn on black
+* like Mirror, it keeps a copy of what the screen already shows and only
+  sends changed cells, so redrawing after every keypress is cheap
+
 ## The userspace C library
 
 `stdlib.h`, `ctype.h` and the extended `string.h` form a small C library built

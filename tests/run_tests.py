@@ -12,7 +12,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import Qemu, screen_text  # noqa: E402
+from harness import Qemu, screen, screen_text  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = "/tmp/opencode/lunatest"
@@ -143,6 +143,53 @@ def test_edit_roundtrip(disk):
     run(disk, "edit roundtrip", body)
 
 
+def test_paint(disk):
+    def body(q):
+        q.command("run paint", wait=1.5)
+        rows = screen(q.dump("v_paint1.bin"))
+        check("paint status bar", "brush" in rows[24] and "esc quit" in rows[24])
+        check("paint canvas starts blank", rows[0] == "")
+
+        q.type_text("h")                  # brush 'h', stamped at (0,0)
+        for _ in range(4):
+            q.sendkey("right")            # drag: stamps 'h' at (1,0)..(4,0)
+        time.sleep(0.3)
+        rows = screen(q.dump("v_paint2.bin"))
+        check("paint pen draws a line", rows[0][:5] == "hhhhh")
+
+        q.sendkey("bracket_right")        # grey(7) -> dkgrey -> lblue
+        q.sendkey("bracket_right")
+        for _ in range(3):
+            q.sendkey("down")             # vertical leg in the new colour
+        time.sleep(0.3)
+        rows = screen(q.dump("v_paint3.bin"))
+        check("paint cycles colours", "lblue" in rows[24])
+        check("paint draws a column", rows[1][4] == "h" and rows[3][4] == "h")
+
+        q.sendkey("backspace")            # eraser on, scrubs the cell at (4,3)
+        time.sleep(0.2)
+        rows = screen(q.dump("v_paint4.bin"))
+        check("paint eraser engages", "ERASE" in rows[24])
+        check("paint eraser scrubs cell", rows[3] == "")
+        q.sendkey("right")                # keeps erasing while dragging (5,3)
+        q.sendkey("backspace")            # eraser off again
+        time.sleep(0.2)
+        rows = screen(q.dump("v_paint5.bin"))
+        check("paint eraser disengages", "ERASE" not in rows[24])
+
+        q.sendkey("ret")                  # clear the canvas
+        time.sleep(0.2)
+        rows = screen(q.dump("v_paint6.bin"))
+        check("paint enter clears", rows[0] == "" and rows[1] == "")
+
+        q.sendkey("esc")                  # leave
+        time.sleep(0.8)
+        q.command("echo ok", wait=0.6)
+        text = screen_text(q.dump("v_paint7.bin"))
+        check("paint returns to the shell", "ok" in text)
+    run(disk, "paint", body)
+
+
 def main():
     disk = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "bin/disk.img"))
     if not os.path.exists(disk):
@@ -158,6 +205,7 @@ def main():
     test_tcc_flat_libc(disk)
     test_mirror(disk)
     test_edit_roundtrip(disk)
+    test_paint(disk)
 
     passed = sum(1 for r in results if r)
     print(f"\n{passed}/{len(results)} checks passed")

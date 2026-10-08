@@ -430,6 +430,7 @@ syscalls. Included examples:
 - **tui** — draws a border in the terminal using `sys_putchar_at` / `sys_goto_xy`, waits for keys
 - **mirrordemo** — Mirror TUI library demo: menu, text field, progress bar, event log
 - **edit** — text editor built on Mirror: file load/save via syscalls, vi-like `:` commands, scrolling, modified-buffer guard
+- **paint** — drawing app: an 80x24 canvas, drag-to-draw pen, 16 colours, eraser, clear (`run paint`)
 - **libctest** — userspace C library test: allocator, string and ctype checks
 - **filetest** — file-handle test: open/read/write/seek/close/unlink round trips
 - **stdiotest** — stdio test: `printf`/`snprintf` formatting and `FILE` round trips

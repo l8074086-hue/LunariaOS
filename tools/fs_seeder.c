@@ -98,6 +98,11 @@ int main(int argc, char **argv)
   n_entries = 4;
   for (int i = 1; i < argc; i++)
   {
+    if (n_entries >= FS_ENTRIES_PER_SECTOR)
+    {
+      fprintf(stderr, "fs_seeder: directory full, skipping %s\n", argv[i]);
+      break;
+    }
     FILE *prog = fopen(argv[i], "rb");
     if (!prog)
     {
