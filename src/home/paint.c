@@ -1,50 +1,49 @@
-/* paint.c — a text-mode drawing app for LunariaOS.
+/* paint.c — text-mode drawing app for LunariaOS (improved)
  *
- * An 80x24 canvas driven straight from the keyboard:
- *
- *   arrows       the pen is always down while moving, so dragging draws
- *   letters etc. pick a new brush (and stamp it under the cursor)
- *   space        stamp the current brush
- *   [ and ]      cycle the 16 foreground colours
- *   backspace    toggle the eraser (drag with it to scrub a line)
- *   enter        clear the canvas
- *   esc          leave
- *
- * Drawn through the plain syscall API. The artwork lives in pix[][]; a
- * second view[][] remembers what the screen already shows, so each frame
- * only the cells that changed are sent to the kernel. There are no libc
- * calls beyond the header-only wrappers, so the file also compiles cleanly
- * on-device with `run tcc paint.c -o out`. */
+ * - Cursor shown as '*' (high contrast)
+ * - Draw only when pen is down (toggle with SPACE)
+ * - Colors only (drawn as spaces in selected color)
+ * - '[' and ']' cycle colors
+ * - 's' saves to "paint.bit" in simple format
+ * - ENTER clears, ESC quits
+ */
 
 #include "user_api.h"
 #include "string.h"
+#include "fs.h"
 
 #define CANV_W 80
-#define CANV_H 24            /* rows 0..23 are the canvas */
-#define STATUS_ROW 24        /* bottom row: status + help */
+#define CANV_H 24
+#define STATUS_ROW 24
 #define STATUS_W 80
 
 #define K_ESC      0x1B
-#define K_BACKSPACE '\b'
 #define K_ENTER    '\n'
+#define K_SPACE    ' '
 #define K_UP       0xE0
 #define K_DOWN     0xE1
 #define K_LEFT     0xE2
 #define K_RIGHT    0xE3
 
 #define ATTR_STATUS USER_COLOR(C_BLUE, C_WHITE)
-#define ATTR_ERASE  USER_COLOR(C_RED, C_WHITE)
+#define ATTR_CURSOR USER_COLOR(C_BLACK, C_WHITE)
 
-#define HELP_END (STATUS_W - 9)   /* the right edge is reserved for " esc quit" */
+#define HELP_END (STATUS_W - 9)
+
+typedef struct
+{
+    unsigned char ch; /* space for drawn pixels */
+    unsigned char fg;
+} cell_t;
 
 typedef struct
 {
     char ch;
-    unsigned char fg;        /* foreground colour; the background stays black */
-} cell_t;
+    unsigned char attr;
+} scr_t;
 
-static cell_t pix[CANV_H][CANV_W];   /* the artwork */
-static cell_t view[CANV_H][CANV_W];  /* what the screen currently shows */
+static cell_t pix[CANV_H][CANV_W];
+static scr_t view[CANV_H + 1][CANV_W];
 
 static char stateline[STATUS_W];
 static const char *const cname[16] = {
@@ -52,12 +51,9 @@ static const char *const cname[16] = {
     "dkgrey", "lblue", "lgreen", "lcyan", "lred", "lmagenta", "yellow", "white"
 };
 
-static int cx, cy;           /* pen position */
-static char brush;           /* glyph the pen stamps */
-static int fgcol;            /* 0..15 */
-static int erasing;          /* backspace toggles this */
-
-/* --- helpers ------------------------------------------------------------ */
+static int cx, cy;
+static int fgcol;
+static int drawing;
 
 static int status_put(int i, const char *s, int end)
 {
@@ -66,87 +62,87 @@ static int status_put(int i, const char *s, int end)
     return i;
 }
 
-/* Rebuild the status bar. Content is clamped to HELP_END so the quit hint
-   at the right edge is always visible. */
 static void status_build(void)
 {
     char num[8];
     int i = 0;
-
     for (i = 0; i < STATUS_W; i++)
         stateline[i] = ' ';
     i = 0;
-
-    i = status_put(i, erasing ? "ERASE " : "paint ", HELP_END);
-    i = status_put(i, "brush:", HELP_END);
-    if (i < HELP_END)
-        stateline[i++] = brush;
+    i = status_put(i, drawing ? "DRAW" : "MOVE", HELP_END);
     i = status_put(i, "  col:", HELP_END);
     itoa(fgcol, num);
     i = status_put(i, num, HELP_END);
     i = status_put(i, " ", HELP_END);
     i = status_put(i, cname[fgcol], HELP_END);
-    if (erasing)
-        i = status_put(i, "  [] col  arrows erase  bs paint  enter new", HELP_END);
-    else
-        i = status_put(i, "  [] col  arrows draw  bs erase  enter new", HELP_END);
+    i = status_put(i, "  [] col  spc toggle  s save  enter new", HELP_END);
     status_put(HELP_END, " esc quit", STATUS_W);
 }
 
-static void status_render(void)
+static void flush_cell(int x, int y)
 {
-    unsigned int a = erasing ? ATTR_ERASE : ATTR_STATUS;
-    for (int x = 0; x < STATUS_W; x++)
-        sys_putchar_at(stateline[x], (unsigned int)x, STATUS_ROW, a);
+    if (y < 0 || y >= CANV_H || x < 0 || x >= CANV_W)
+        return;
+    char want_ch;
+    unsigned char want_attr;
+    if (x == cx && y == cy)
+    {
+        want_ch = '*';
+        want_attr = (unsigned char)ATTR_CURSOR;
+    }
+    else
+    {
+        want_ch = (char)pix[y][x].ch;
+        want_attr = (unsigned char)USER_COLOR(C_BLACK, pix[y][x].fg);
+    }
+    if (view[y][x].ch == want_ch && view[y][x].attr == want_attr)
+        return;
+    sys_putchar_at(want_ch, (unsigned int)x, (unsigned int)y, (unsigned int)want_attr);
+    view[y][x].ch = want_ch;
+    view[y][x].attr = want_attr;
 }
 
-/* --- canvas -------------------------------------------------------------- */
-
-/* Make cell (x, y) match pix[][] on the real screen, sending a syscall only
-   when the cell changed. The pen cell is inverted so it is always visible,
-   even over an empty (black-on-black) cell. */
-static void sync_cell(int x, int y)
+static void flush_status(void)
 {
-    char c = pix[y][x].ch;
-    unsigned int a = USER_COLOR(C_BLACK, pix[y][x].fg);
+    unsigned int a = ATTR_STATUS;
+    for (int x = 0; x < STATUS_W; x++)
+    {
+        if (view[STATUS_ROW][x].ch == stateline[x] && view[STATUS_ROW][x].attr == (unsigned char)a)
+            continue;
+        sys_putchar_at(stateline[x], (unsigned int)x, STATUS_ROW, a);
+        view[STATUS_ROW][x].ch = stateline[x];
+        view[STATUS_ROW][x].attr = (unsigned char)a;
+    }
+}
 
-    if (x == cx && y == cy)
-        a = USER_COLOR(pix[y][x].fg ? pix[y][x].fg : C_WHITE, C_BLACK);
-
-    if (c == view[y][x].ch && (unsigned char)a == view[y][x].fg)
-        return;
-    sys_putchar_at(c, (unsigned int)x, (unsigned int)y, a);
-    view[y][x].ch = c;
-    view[y][x].fg = (unsigned char)a;
+static void redraw_all(void)
+{
+    for (int y = 0; y < CANV_H; y++)
+        for (int x = 0; x < CANV_W; x++)
+            flush_cell(x, y);
+    flush_status();
 }
 
 static void stamp(int x, int y)
 {
-    if (erasing)
-    {
-        pix[y][x].ch = ' ';
-        pix[y][x].fg = 0;
-    }
-    else
-    {
-        pix[y][x].ch = brush;
-        pix[y][x].fg = (unsigned char)fgcol;
-    }
-    sync_cell(x, y);
+    pix[y][x].ch = ' ';
+    pix[y][x].fg = (unsigned char)fgcol;
+    flush_cell(x, y);
 }
 
-/* Move the pen, painting the destination cell on the way (etch-a-sketch). */
 static void step(int dx, int dy)
 {
     int nx = cx + dx;
     int ny = cy + dy;
-
     if (nx < 0 || nx >= CANV_W || ny < 0 || ny >= CANV_H)
         return;
-    sync_cell(cx, cy);       /* drop the pen highlight from the old cell */
+    flush_cell(cx, cy);
     cx = nx;
     cy = ny;
-    stamp(cx, cy);
+    if (drawing)
+        stamp(cx, cy);
+    else
+        flush_cell(cx, cy);
 }
 
 static void clear_canvas(void)
@@ -154,45 +150,64 @@ static void clear_canvas(void)
     cx = 0;
     cy = 0;
     for (int y = 0; y < CANV_H; y++)
+    {
         for (int x = 0; x < CANV_W; x++)
         {
             pix[y][x].ch = ' ';
             pix[y][x].fg = 0;
-            sync_cell(x, y); /* only previously-painted cells get sent */
         }
+    }
+    redraw_all();
 }
 
 static void init_canvas(void)
 {
+    for (int y = 0; y < CANV_H + 1; y++)
+    {
+        for (int x = 0; x < CANV_W; x++)
+        {
+            view[y][x].ch = ' ';
+            view[y][x].attr = 0;
+        }
+    }
     for (int y = 0; y < CANV_H; y++)
+    {
         for (int x = 0; x < CANV_W; x++)
         {
             pix[y][x].ch = ' ';
             pix[y][x].fg = 0;
-            view[y][x].ch = ' ';
-            view[y][x].fg = 0;
         }
-    cx = 0;
-    cy = 0;
-    brush = '#';
-    fgcol = C_LIGHT_GREY;
-    erasing = 0;
+    }
+    cx = 0; cy = 0; fgcol = C_LIGHT_GREY; drawing = 0;
 }
 
-/* --- main ---------------------------------------------------------------- */
+static void save_bit(void)
+{
+    unsigned char buf[4 + 2 + 2 + CANV_W * CANV_H * 2];
+    int p = 0;
+    buf[p++] = 'B'; buf[p++] = 'I'; buf[p++] = 'T'; buf[p++] = 1;
+    buf[p++] = (unsigned char)(CANV_W & 0xFF); buf[p++] = (unsigned char)((CANV_W >> 8) & 0xFF);
+    buf[p++] = (unsigned char)(CANV_H & 0xFF); buf[p++] = (unsigned char)((CANV_H >> 8) & 0xFF);
+    for (int y = 0; y < CANV_H; y++)
+    {
+        for (int x = 0; x < CANV_W; x++)
+        {
+            buf[p++] = pix[y][x].ch;
+            buf[p++] = pix[y][x].fg;
+        }
+    }
+    sys_write_file("paint.bit", (const char *)buf, (unsigned int)p);
+}
 
 void _start(void)
 {
     init_canvas();
-    sys_clear();             /* now view[][] correctly describes the screen */
-
+    sys_clear();
     status_build();
-    status_render();
-
+    redraw_all();
     for (;;)
     {
         int k = sys_getc();
-
         switch (k)
         {
         case K_UP:
@@ -207,50 +222,39 @@ void _start(void)
         case K_RIGHT:
             step(1, 0);
             break;
-
-        case K_BACKSPACE:
-            erasing = !erasing;
-            if (erasing)
-                stamp(cx, cy);   /* instant feedback under the pen */
+        case K_SPACE:
+            drawing = !drawing;
             status_build();
-            status_render();
+            flush_status();
+            flush_cell(cx, cy);
             break;
-
+        case '[':
+            fgcol = (fgcol + 15) % 16;
+            status_build();
+            flush_status();
+            flush_cell(cx, cy);
+            break;
+        case ']':
+            fgcol = (fgcol + 1) % 16;
+            status_build();
+            flush_status();
+            flush_cell(cx, cy);
+            break;
+        case 's':
+        case 'S':
+            save_bit();
+            flush_cell(cx, cy);
+            break;
         case K_ENTER:
             clear_canvas();
-            status_build();
-            status_render();
             break;
-
-        case '[':
-            fgcol = (fgcol + 15) % 16;   /* one back */
-            status_build();
-            status_render();
-            break;
-
-        case ']':
-            fgcol = (fgcol + 1) % 16;    /* one forward */
-            status_build();
-            status_render();
-            break;
-
         case K_ESC:
             sys_clear();
             sys_exit();
             break;
-
         default:
-            if (k >= 32 && k <= 126)
-            {
-                erasing = 0;
-                brush = (char)k;
-                stamp(cx, cy);
-                status_build();
-                status_render();
-            }
             break;
         }
-
-        sys_goto_xy((unsigned int)cx, (unsigned int)cy);   /* park the caret on the pen */
+        sys_goto_xy((unsigned int)cx, (unsigned int)cy);
     }
 }
