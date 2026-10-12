@@ -1,12 +1,4 @@
-/* paint.c — text-mode drawing app for LunariaOS (improved)
- *
- * - Cursor shown as '*' (high contrast)
- * - Draw only when pen is down (toggle with SPACE)
- * - Colors only (drawn as spaces in selected color)
- * - '[' and ']' cycle colors
- * - 's' saves to "paint.bit" in simple format
- * - ENTER clears, ESC quits
- */
+/* paint.c — text-mode drawing app for LunariaOS (improved) */
 
 #include "user_api.h"
 #include "string.h"
@@ -32,18 +24,13 @@
 
 typedef struct
 {
-    unsigned char ch; /* space for drawn pixels */
+    unsigned char ch;
     unsigned char fg;
 } cell_t;
 
-typedef struct
-{
-    char ch;
-    unsigned char attr;
-} scr_t;
-
 static cell_t pix[CANV_H][CANV_W];
-static scr_t view[CANV_H + 1][CANV_W];
+static char view_ch[CANV_H + 1][CANV_W];
+static unsigned char view_attr[CANV_H + 1][CANV_W];
 
 static char stateline[STATUS_W];
 static const char *const cname[16] = {
@@ -79,27 +66,17 @@ static void status_build(void)
     status_put(HELP_END, " esc quit", STATUS_W);
 }
 
-static void flush_cell(int x, int y)
+static void draw_cell_content(int x, int y)
 {
     if (y < 0 || y >= CANV_H || x < 0 || x >= CANV_W)
         return;
-    char want_ch;
-    unsigned char want_attr;
-    if (x == cx && y == cy)
-    {
-        want_ch = '*';
-        want_attr = (unsigned char)ATTR_CURSOR;
-    }
-    else
-    {
-        want_ch = (char)pix[y][x].ch;
-        want_attr = (unsigned char)USER_COLOR(C_BLACK, pix[y][x].fg);
-    }
-    if (view[y][x].ch == want_ch && view[y][x].attr == want_attr)
+    char ch = (char)pix[y][x].ch;
+    unsigned char attr = (unsigned char)USER_COLOR(C_BLACK, pix[y][x].fg);
+    if (view_ch[y][x] == ch && view_attr[y][x] == attr)
         return;
-    sys_putchar_at(want_ch, (unsigned int)x, (unsigned int)y, (unsigned int)want_attr);
-    view[y][x].ch = want_ch;
-    view[y][x].attr = want_attr;
+    sys_putchar_at(ch, (unsigned int)x, (unsigned int)y, (unsigned int)attr);
+    view_ch[y][x] = ch;
+    view_attr[y][x] = attr;
 }
 
 static void flush_status(void)
@@ -107,11 +84,11 @@ static void flush_status(void)
     unsigned int a = ATTR_STATUS;
     for (int x = 0; x < STATUS_W; x++)
     {
-        if (view[STATUS_ROW][x].ch == stateline[x] && view[STATUS_ROW][x].attr == (unsigned char)a)
+        if (view_ch[STATUS_ROW][x] == stateline[x] && view_attr[STATUS_ROW][x] == (unsigned char)a)
             continue;
         sys_putchar_at(stateline[x], (unsigned int)x, STATUS_ROW, a);
-        view[STATUS_ROW][x].ch = stateline[x];
-        view[STATUS_ROW][x].attr = (unsigned char)a;
+        view_ch[STATUS_ROW][x] = stateline[x];
+        view_attr[STATUS_ROW][x] = (unsigned char)a;
     }
 }
 
@@ -119,15 +96,10 @@ static void redraw_all(void)
 {
     for (int y = 0; y < CANV_H; y++)
         for (int x = 0; x < CANV_W; x++)
-            flush_cell(x, y);
+            draw_cell_content(x, y);
     flush_status();
-}
-
-static void stamp(int x, int y)
-{
-    pix[y][x].ch = ' ';
-    pix[y][x].fg = (unsigned char)fgcol;
-    flush_cell(x, y);
+    sys_putchar_at('*', (unsigned int)cx, (unsigned int)cy, (unsigned int)ATTR_CURSOR);
+    sys_goto_xy((unsigned int)cx, (unsigned int)cy);
 }
 
 static void step(int dx, int dy)
@@ -136,13 +108,17 @@ static void step(int dx, int dy)
     int ny = cy + dy;
     if (nx < 0 || nx >= CANV_W || ny < 0 || ny >= CANV_H)
         return;
-    flush_cell(cx, cy);
+    draw_cell_content(cx, cy);
     cx = nx;
     cy = ny;
     if (drawing)
-        stamp(cx, cy);
-    else
-        flush_cell(cx, cy);
+    {
+        pix[cy][cx].ch = ' ';
+        pix[cy][cx].fg = (unsigned char)fgcol;
+    }
+    draw_cell_content(cx, cy);
+    sys_putchar_at('*', (unsigned int)cx, (unsigned int)cy, (unsigned int)ATTR_CURSOR);
+    sys_goto_xy((unsigned int)cx, (unsigned int)cy);
 }
 
 static void clear_canvas(void)
@@ -166,8 +142,8 @@ static void init_canvas(void)
     {
         for (int x = 0; x < CANV_W; x++)
         {
-            view[y][x].ch = ' ';
-            view[y][x].attr = 0;
+            view_ch[y][x] = ' ';
+            view_attr[y][x] = 0;
         }
     }
     for (int y = 0; y < CANV_H; y++)
@@ -226,24 +202,28 @@ void _start(void)
             drawing = !drawing;
             status_build();
             flush_status();
-            flush_cell(cx, cy);
+            sys_putchar_at('*', (unsigned int)cx, (unsigned int)cy, (unsigned int)ATTR_CURSOR);
+            sys_goto_xy((unsigned int)cx, (unsigned int)cy);
             break;
         case '[':
             fgcol = (fgcol + 15) % 16;
             status_build();
             flush_status();
-            flush_cell(cx, cy);
+            sys_putchar_at('*', (unsigned int)cx, (unsigned int)cy, (unsigned int)ATTR_CURSOR);
+            sys_goto_xy((unsigned int)cx, (unsigned int)cy);
             break;
         case ']':
             fgcol = (fgcol + 1) % 16;
             status_build();
             flush_status();
-            flush_cell(cx, cy);
+            sys_putchar_at('*', (unsigned int)cx, (unsigned int)cy, (unsigned int)ATTR_CURSOR);
+            sys_goto_xy((unsigned int)cx, (unsigned int)cy);
             break;
         case 's':
         case 'S':
             save_bit();
-            flush_cell(cx, cy);
+            sys_putchar_at('*', (unsigned int)cx, (unsigned int)cy, (unsigned int)ATTR_CURSOR);
+            sys_goto_xy((unsigned int)cx, (unsigned int)cy);
             break;
         case K_ENTER:
             clear_canvas();
@@ -253,8 +233,9 @@ void _start(void)
             sys_exit();
             break;
         default:
+            sys_putchar_at('*', (unsigned int)cx, (unsigned int)cy, (unsigned int)ATTR_CURSOR);
+            sys_goto_xy((unsigned int)cx, (unsigned int)cy);
             break;
         }
-        sys_goto_xy((unsigned int)cx, (unsigned int)cy);
     }
 }
