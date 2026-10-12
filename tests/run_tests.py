@@ -12,7 +12,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import Qemu, screen, screen_text  # noqa: E402
+from harness import Qemu, screen, screen_text, attr_at  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = "/tmp/opencode/lunatest"
@@ -146,47 +146,71 @@ def test_edit_roundtrip(disk):
 def test_paint(disk):
     def body(q):
         q.command("run paint", wait=1.5)
-        rows = screen(q.dump("v_paint1.bin"))
-        check("paint status bar", "brush" in rows[24] and "esc quit" in rows[24])
-        check("paint canvas starts blank", rows[0] == "")
+        p = q.dump("v_paint1.bin")
+        rows = screen(p)
+        check("paint status bar", "spc toggle" in rows[24] and "esc quit" in rows[24])
+        check("paint starts in move mode", "MOVE" in rows[24])
+        check("paint cursor is *", rows[0] == "*")
 
-        q.type_text("h")                  # brush 'h', stamped at (0,0)
-        for _ in range(4):
-            q.sendkey("right")            # drag: stamps 'h' at (1,0)..(4,0)
-        time.sleep(0.3)
-        rows = screen(q.dump("v_paint2.bin"))
-        check("paint pen draws a line", rows[0][:5] == "hhhhh")
-
-        q.sendkey("bracket_right")        # grey(7) -> dkgrey -> lblue
-        q.sendkey("bracket_right")
         for _ in range(3):
-            q.sendkey("down")             # vertical leg in the new colour
-        time.sleep(0.3)
-        rows = screen(q.dump("v_paint3.bin"))
-        check("paint cycles colours", "lblue" in rows[24])
-        check("paint draws a column", rows[1][4] == "h" and rows[3][4] == "h")
-
-        q.sendkey("backspace")            # eraser on, scrubs the cell at (4,3)
+            q.sendkey("right")
         time.sleep(0.2)
-        rows = screen(q.dump("v_paint4.bin"))
-        check("paint eraser engages", "ERASE" in rows[24])
-        check("paint eraser scrubs cell", rows[3] == "")
-        q.sendkey("right")                # keeps erasing while dragging (5,3)
-        q.sendkey("backspace")            # eraser off again
+        p = q.dump("v_paint2.bin")
+        rows = screen(p)
+        check("paint does not draw in move mode", rows[0] == "   *")
+        check("paint restores the cell it left", attr_at(p, 0, 0) in (0x00, 0x0F))
+
+        q.sendkey("spc")
+        time.sleep(0.2)
+        rows = screen(q.dump("v_paint3.bin"))
+        check("paint space toggles drawing", "DRAW" in rows[24])
+
+        q.sendkey("right")
+        q.sendkey("right")
+        time.sleep(0.2)
+        p = q.dump("v_paint4.bin")
+        # drawn pixels are solid colour blocks (space with a coloured background)
+        check("paint draws a coloured block", attr_at(p, 4, 0) == 0x77)
+        check("paint cursor is the only foreground char", screen(p)[0] == "     *")
+
+        q.sendkey("bracket_right")
+        q.sendkey("bracket_right")
         time.sleep(0.2)
         rows = screen(q.dump("v_paint5.bin"))
-        check("paint eraser disengages", "ERASE" not in rows[24])
+        check("paint cycles colours", "lblue" in rows[24])
 
-        q.sendkey("ret")                  # clear the canvas
+        q.sendkey("down")
+        q.sendkey("down")
         time.sleep(0.2)
-        rows = screen(q.dump("v_paint6.bin"))
-        check("paint enter clears", rows[0] == "" and rows[1] == "")
+        p = q.dump("v_paint6.bin")
+        check("paint draws in the new colour", attr_at(p, 5, 1) == 0x99)
 
-        q.sendkey("esc")                  # leave
+        q.sendkey("spc")
+        q.sendkey("left")
+        q.sendkey("left")
+        time.sleep(0.2)
+        p = q.dump("v_paint7.bin")
+        rows = screen(p)
+        check("paint stops drawing when toggled off",
+              attr_at(p, 4, 0) == 0x77 and attr_at(p, 5, 1) == 0x99)
+        check("paint leaves no cursor trail", rows[0] == "" and rows[2] == "   *")
+
+        q.sendkey("s")
+        time.sleep(0.2)
+        q.sendkey("ret")
+        time.sleep(0.3)
+        p = q.dump("v_paint8.bin")
+        rows = screen(p)
+        check("paint enter clears the canvas", rows[0] == "*" and rows[1] == "")
+        check("paint clear wipes the colours", attr_at(p, 4, 0) not in (0x77, 0x99))
+
+        q.sendkey("esc")
         time.sleep(0.8)
         q.command("echo ok", wait=0.6)
-        text = screen_text(q.dump("v_paint7.bin"))
+        q.command("cat paint.bit", wait=0.6)
+        text = screen_text(q.dump("v_paint9.bin"))
         check("paint returns to the shell", "ok" in text)
+        check("paint saved paint.bit", "BIT" in text)
     run(disk, "paint", body)
 
 

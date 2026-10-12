@@ -295,11 +295,18 @@ It is deliberately written against the raw syscalls (`sys_putchar_at`,
 tcc too:
 
 * an 80x24 canvas with a status bar on the bottom row showing the current
-  brush, colour and a reminder of the keys
-* the pen is always down while the arrow keys move, so dragging draws
-  (etch-a-sketch style); printable keys pick a new brush and stamp it,
-  backspace toggles the eraser, `enter` clears, `esc` leaves
-* `[` and `]` cycle the 16 foreground colours; everything is drawn on black
+  mode, colour and a reminder of the keys
+* the cursor is a single `*`; arrow keys move it, and it never leaves a
+  trail because the app remembers the real contents of the cell it is
+  covering and restores it when the cursor moves on
+* the pen is down only in draw mode: `space` toggles between `MOVE` and
+  `DRAW`, so moving the cursor does not paint until you draw
+* drawing uses colours only — each pixel is a solid block (a space with a
+  coloured background), so there is no brush character left behind
+* `[` and `]` cycle the 16 colours; `enter` clears, `esc` leaves
+* `s` saves the canvas to `paint.bit`: the four bytes `BIT\1`, then the
+  width and height as little-endian `u16`, then one colour byte per pixel
+  (row-major)
 * like Mirror, it keeps a copy of what the screen already shows and only
   sends changed cells, so redrawing after every keypress is cheap
 

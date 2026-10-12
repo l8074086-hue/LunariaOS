@@ -103,3 +103,9 @@ def screen(path):
 
 def screen_text(path):
     return "\n".join(screen(path))
+
+
+def attr_at(path, x, y):
+    """Return the colour attribute byte of the VGA cell at (x, y)."""
+    data = open(path, "rb").read()
+    return data[(y * 80 + x) * 2 + 1]
