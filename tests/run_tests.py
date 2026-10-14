@@ -62,6 +62,15 @@ def test_stdiotest(disk):
     run(disk, "stdiotest", body)
 
 
+def test_test_prog(disk):
+    def body(q):
+        q.command("run test", wait=2.0)
+        text = screen_text(q.dump("v_test.bin"))
+        check("home program prints greeting", "Hello, World!" in text)
+        check("home program computes result", "result = 4" in text)
+    run(disk, "test", body)
+
+
 def test_tcc(disk):
     def body(q):
         q.command("run tcc", wait=12.0)
@@ -229,6 +238,7 @@ def main():
     test_libctest(disk)
     test_filetest(disk)
     test_stdiotest(disk)
+    test_test_prog(disk)
     test_tcc(disk)
     test_tcc_file(disk)
     test_tcc_flat(disk)

@@ -90,7 +90,7 @@ int main(int argc, char **argv)
   next_lba += (strlen(text4) + 511) / 512;
 
   // PROGRAMS and libraries from argv
-  struct file_entry entries[FS_ENTRIES_PER_SECTOR];
+  struct file_entry entries[FS_DIR_SECTORS * FS_ENTRIES_PER_SECTOR];
   memset(entries, 0, sizeof entries);
   int n_entries = 2;
   entries[2] = entry3;
@@ -98,7 +98,7 @@ int main(int argc, char **argv)
   n_entries = 4;
   for (int i = 1; i < argc; i++)
   {
-    if (n_entries >= FS_ENTRIES_PER_SECTOR)
+    if (n_entries >= FS_DIR_SECTORS * FS_ENTRIES_PER_SECTOR)
     {
       fprintf(stderr, "fs_seeder: directory full, skipping %s\n", argv[i]);
       break;
