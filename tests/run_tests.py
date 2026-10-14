@@ -204,11 +204,17 @@ def test_paint(disk):
         check("paint enter clears the canvas", rows[0] == "*" and rows[1] == "")
         check("paint clear wipes the colours", attr_at(p, 4, 0) not in (0x77, 0x99))
 
+        q.sendkey("l")
+        time.sleep(0.4)
+        p = q.dump("v_paint9.bin")
+        check("paint l loads paint.bit",
+              attr_at(p, 4, 0) == 0x77 and attr_at(p, 5, 1) == 0x99)
+
         q.sendkey("esc")
         time.sleep(0.8)
         q.command("echo ok", wait=0.6)
         q.command("cat paint.bit", wait=0.6)
-        text = screen_text(q.dump("v_paint9.bin"))
+        text = screen_text(q.dump("v_paint10.bin"))
         check("paint returns to the shell", "ok" in text)
         check("paint saved paint.bit", "BIT" in text)
     run(disk, "paint", body)

@@ -6,6 +6,7 @@
  *   space        toggle draw mode (DRAW paints as you move, MOVE just moves)
  *   [ and ]      cycle the 16 colours
  *   s            save the canvas to paint.bit
+ *   l            load the canvas from paint.bit
  *   enter        clear the canvas
  *   esc          quit
  *
@@ -98,7 +99,7 @@ static void status_build(void)
     i = status_put(i, num, HELP_END);
     i = status_put(i, " ", HELP_END);
     i = status_put(i, cname[fgcol], HELP_END);
-    i = status_put(i, "  [] col  spc toggle  s save  enter new", HELP_END);
+    i = status_put(i, "  [] col  spc toggle  s save  l load  enter new", HELP_END);
     status_put(HELP_END, " esc quit", STATUS_W);
 }
 
@@ -190,6 +191,30 @@ static void save_bit(void)
     sys_write_file("paint.bit", (const char *)buf, (unsigned int)p);
 }
 
+/* Read paint.bit back into the canvas. Anything that does not match the
+   expected magic/size is ignored. */
+static void load_bit(void)
+{
+    unsigned char buf[8 + CANV_W * CANV_H];
+    int n = sys_read_file("paint.bit", (char *)buf, (unsigned int)sizeof(buf));
+    int w, h, p;
+    if (n < 8)
+        return;
+    if (buf[0] != 'B' || buf[1] != 'I' || buf[2] != 'T' || buf[3] != 1)
+        return;
+    w = buf[4] | (buf[5] << 8);
+    h = buf[6] | (buf[7] << 8);
+    if (w != CANV_W || h != CANV_H || n < 8 + CANV_W * CANV_H)
+        return;
+    p = 8;
+    for (int y = 0; y < CANV_H; y++)
+        for (int x = 0; x < CANV_W; x++)
+            pix[y][x] = buf[p++];
+    cx = 0;
+    cy = 0;
+    redraw_all();
+}
+
 static void set_mode(void)
 {
     status_build();
@@ -232,6 +257,12 @@ void _start(void)
         case 's':
         case 'S':
             save_bit();
+            draw_cursor();
+            break;
+
+        case 'l':
+        case 'L':
+            load_bit();
             draw_cursor();
             break;
 

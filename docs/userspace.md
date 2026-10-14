@@ -304,9 +304,9 @@ tcc too:
 * drawing uses colours only — each pixel is a solid block (a space with a
   coloured background), so there is no brush character left behind
 * `[` and `]` cycle the 16 colours; `enter` clears, `esc` leaves
-* `s` saves the canvas to `paint.bit`: the four bytes `BIT\1`, then the
-  width and height as little-endian `u16`, then one colour byte per pixel
-  (row-major)
+* `s` saves the canvas to `paint.bit` and `l` loads it back: the four bytes
+  `BIT\1`, then the width and height as little-endian `u16`, then one colour
+  byte per pixel (row-major)
 * like Mirror, it keeps a copy of what the screen already shows and only
   sends changed cells, so redrawing after every keypress is cheap
 
