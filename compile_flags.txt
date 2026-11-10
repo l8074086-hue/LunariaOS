@@ -1,0 +1,15 @@
+-m32
+-ffreestanding
+-nostdlib
+-std=c99
+-fno-stack-protector
+-fno-pic
+-fno-builtin
+-fno-asynchronous-unwind-tables
+-mno-sse
+-mno-mmx
+-Isrc/headers
+-Isrc/lib
+-Isrc/home/lib
+-Ithirdparty/tinycc
+-Ibin
