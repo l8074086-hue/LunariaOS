@@ -26,12 +26,24 @@ extern char _kernel_end[];
 static uint32_t mem_top;        /* highest usable physical address, capped at 4G */
 static uint32_t nframes;
 static uint32_t frames_free;
+static uint32_t reserved_end;   /* first frame past kernel + bitmap + low memory */
 static unsigned char *bitmap;   /* 1 bit per 4K frame, placed right after kernel */
+static uint32_t e820_mismatches; /* frames whose bitmap state disagrees with E820 */
 static uint32_t page_dir[1024] __attribute__((aligned(4096))); /* kernel page dir (.bss) */
 
 static uint32_t e820_count(void)
 {
     return *(volatile uint16_t *)E820_COUNT_ADDR;
+}
+
+/* End of an E820 entry, clamped to the 32-bit address space. A non-zero
+   len_hi means the range crosses 4G, which this 32-bit kernel cannot use. */
+static uint32_t region_end(const struct e820_entry *e)
+{
+    uint32_t end = e->base_lo + e->len_lo;
+    if (e->len_hi || end < e->base_lo)
+        return 0xFFFFFFFF;
+    return end;
 }
 
 static uint32_t top_usable(void)
@@ -42,27 +54,35 @@ static uint32_t top_usable(void)
     {
         if (e[i].type != E820_USABLE || e[i].base_hi != 0)
             continue;
-        uint32_t end = e[i].base_lo + e[i].len_lo;
-        if (end < e[i].base_lo)                /* wraparound at 4G */
-            end = 0xFFFFFFFF;
+        uint32_t end = region_end(&e[i]);
         if (end > top)
             top = end;
     }
     return top;
 }
 
-static int in_usable(uint32_t addr)
+/* A frame is usable only when the whole 4K is covered by E820 type-1 ranges.
+   Checking just the first byte would hand out frames that straddle a hole. */
+static int frame_usable(uint32_t addr)
 {
     struct e820_entry *e = (struct e820_entry *)E820_BUF_ADDR;
+    uint32_t end = addr + PAGE_SIZE;
+    uint32_t covered = 0;
+
     for (uint32_t i = 0; i < e820_count(); i++)
     {
         if (e[i].type != E820_USABLE || e[i].base_hi != 0)
             continue;
-        int32_t diff = (int32_t)(addr - e[i].base_lo);
-        if (diff >= 0 && (uint32_t)diff < e[i].len_lo)
-            return 1;
+
+        uint32_t base = e[i].base_lo;
+        uint32_t r_end = region_end(&e[i]);
+        uint32_t lo = addr > base ? addr : base;
+        uint32_t hi = end < r_end ? end : r_end;
+
+        if (lo < hi)
+            covered += hi - lo;
     }
-    return 0;
+    return covered >= PAGE_SIZE;
 }
 
 static int frame_used(uint32_t idx)
@@ -104,6 +124,34 @@ static void free_frame(uint32_t addr)
     }
 }
 
+/* Re-derive the expected used/free state from the BIOS map and compare it
+   with the bitmap that the allocator will actually use. The count check also
+   catches a frame being freed twice or lost entirely. */
+static void verify_e820_bitmap(void)
+{
+    uint32_t mismatches = 0;
+    uint32_t free_count = 0;
+
+    for (uint32_t idx = 0; idx < nframes; idx++)
+    {
+        uint32_t addr = idx * PAGE_SIZE;
+        int expected_used = addr < reserved_end
+                         || (addr >= USER_BASE && addr < USER_TOP)
+                         || !frame_usable(addr);
+        int actual_used = frame_used(idx);
+
+        if (expected_used != actual_used)
+            mismatches++;
+        if (!actual_used)
+            free_count++;
+    }
+
+    if (free_count != frames_free)
+        mismatches++;
+
+    e820_mismatches = mismatches;
+}
+
 void memory_init(void)
 {
     mem_top = top_usable();
@@ -116,16 +164,23 @@ void memory_init(void)
     bitmap = (unsigned char *)bm_phys;
     memset(bitmap, 0xFF, bm_bytes);   /* everything reserved by default */
 
+    /* Keep low memory, the kernel image and the bitmap itself out of the
+       allocator even if the kernel grows past the low 1 MB one day. */
+    reserved_end = bm_phys + bm_bytes;
+    if (reserved_end < LOW_END)
+        reserved_end = LOW_END;
+    reserved_end = (reserved_end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
     frames_free = 0;
     for (uint32_t idx = 0; idx < nframes; idx++)
     {
         uint32_t addr = idx * PAGE_SIZE;
         int used = 0;
-        if (addr < LOW_END)                       /* low 1 MB: kernel, stack, VGA */
+        if (addr < reserved_end)                  /* kernel, stack, VGA, bitmap */
             used = 1;
         else if (addr >= USER_BASE && addr < USER_TOP)  /* flat user region */
             used = 1;
-        else if (!in_usable(addr))                /* E820 holes (ACPI, etc.) */
+        else if (!frame_usable(addr))             /* E820 holes (ACPI, etc.) */
             used = 1;
         if (!used)
         {
@@ -134,16 +189,7 @@ void memory_init(void)
         }
     }
 
-    /* protect the bitmap itself in case kernel grows past 1 MB someday */
-    for (uint32_t a = bm_phys & ~(PAGE_SIZE - 1); a < bm_phys + bm_bytes; a += PAGE_SIZE)
-    {
-        uint32_t i = a / PAGE_SIZE;
-        if (i < nframes && !frame_used(i))
-        {
-            frame_set(i);
-            frames_free--;
-        }
-    }
+    verify_e820_bitmap();
 }
 
 /* Identity-map [from,to) with 4K pages; allocates page tables on demand.
@@ -271,6 +317,11 @@ uint32_t memory_free_frames(void)
 uint32_t memory_total_frames(void)
 {
     return nframes;
+}
+
+uint32_t memory_e820_mismatches(void)
+{
+    return e820_mismatches;
 }
 
 /* ------------------------------------------------------------------ *

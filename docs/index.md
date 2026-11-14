@@ -1,4 +1,6 @@
-# The LunariaOS Documentation.
+# The LunariaOS Technical Reference
+
+> **New to OS development?** Start with the **[Concepts Guide](concepts.md)** — it explains every concept from the ground up (what is a bootloader, what are privilege rings, how does paging work, etc.). This document is the dense technical reference.
 
 LunariaOS is a 32-bit x86 hobby operating system hand-rolled from scratch in
 C and assembly. This document describes how the system is put together.
@@ -113,6 +115,13 @@ The memory API exposes frame statistics through:
 * `memory_total_kb()` — total usable memory in KiB
 
 A page therefore consumes one physical frame when it becomes backed.
+
+`memory_init()` uses the BIOS E820 map to decide which frames are usable. It
+requires the whole 4 KiB frame to be covered by usable E820 ranges, and keeps
+low memory, the kernel image, the frame bitmap and the flat user window
+reserved. Immediately after building the bitmap it re-derives the expected
+state and compares it with the bitmap; `free` reports the result as
+`bitmap matches BIOS map`, or a mismatch count if the two disagree.
 
 ### User Address Space
 
@@ -377,7 +386,7 @@ frame on the kernel stack so control returns to `exit_to_shell()`.
 | `mkdir <name>` | Create a directory           |
 | `rm <file>` | Delete a file                  |
 | `run <file> [args...]` | Load and execute a user program, passing `args` to `_start(int, char **)` |
-| `free` | Shows free memory |
+| `free` | Shows free memory and the E820 bitmap check |
 | `uptime` | Shows how long the machine has been on |
 | `banner` | Prints the LunariaOS banner |
 | `sleep` | Pauses |

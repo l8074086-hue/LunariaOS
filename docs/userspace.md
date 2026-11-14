@@ -1,5 +1,7 @@
 
-# Writing userspace software for LunariaOS
+# Writing Userspace Software for LunariaOS
+
+> **Never written a userspace program for a custom OS?** Read the **[Concepts Guide](concepts.md#system-calls--how-user-programs-ask-the-kernel-for-help)** first — it explains syscalls, rings, and virtual memory from zero. This guide assumes you understand those basics.
 
 LunariaOS can run flat binaries in **ring 3** (user mode). User programs can
 only access hardware and kernel services through the `int 0x80` syscall

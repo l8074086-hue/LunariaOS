@@ -9,6 +9,7 @@ void paging_init(void);
 uint32_t memory_total_kb(void);
 uint32_t memory_free_frames(void);
 uint32_t memory_total_frames(void);
+uint32_t memory_e820_mismatches(void);
 
 /* --- per-process address spaces ---------------------------------------
    The kernel half of every address space is the same identity map, so a

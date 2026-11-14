@@ -1,6 +1,4 @@
 @paging — get virtual memory actually working and landed
-(A) 2026-09-28 confirm the E820 frame bitmap matches the BIOS map (memory.c) +LunariaOS @paging @projects @self
-(A) 2026-09-28 reserve _kernel_end and the bitmap's own pages in the PMM +LunariaOS @paging @projects @self
 (A) 2026-09-28 verify #PF → vm_fault(CR2) maps the page and retries the faulting instruction +LunariaOS @paging @projects @self
 (A) 2026-09-28 verify vm_sbrk grows the user heap past the loaded image +LunariaOS @paging @projects @self
 (A) 2026-09-28 verify the CR3 load in enter_user / vm_attach actually takes effect +LunariaOS @paging @projects @self

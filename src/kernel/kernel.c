@@ -52,6 +52,17 @@ void kmain(void)
     term_print_color(wm_current(), kb, VGA_COLOR(BLACK, BLUE));
     term_print_color(wm_current(), " free frames (paging ON)\n", VGA_COLOR(BLACK, BLUE));
 
+    if (memory_e820_mismatches() == 0)
+        term_print_color(wm_current(), "[MEM]: E820 bitmap matches BIOS map\n",
+                         VGA_COLOR(BLACK, BLUE));
+    else
+    {
+        term_print_color(wm_current(), "[MEM]: E820 MISMATCH ", VGA_COLOR(BLACK, RED));
+        itoa((int)memory_e820_mismatches(), kb);
+        term_print_color(wm_current(), kb, VGA_COLOR(BLACK, RED));
+        term_print_color(wm_current(), " frames\n", VGA_COLOR(BLACK, RED));
+    }
+
     if (fs_mount() == 0)
         term_print_color(wm_current(), "[FS]: Mounted\n", VGA_COLOR(BLACK, BLUE));
     else

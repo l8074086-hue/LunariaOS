@@ -71,6 +71,15 @@ def test_test_prog(disk):
     run(disk, "test", body)
 
 
+def test_memory_map(disk):
+    def body(q):
+        q.command("free", wait=0.8)
+        text = screen_text(q.dump("v_free.bin"))
+        check("e820 bitmap matches BIOS map", "bitmap matches BIOS map" in text)
+        check("e820 has no mismatches", "mismatches" not in text)
+    run(disk, "memory map", body)
+
+
 def test_tcc(disk):
     def body(q):
         q.command("run tcc", wait=12.0)
@@ -239,6 +248,7 @@ def main():
     test_filetest(disk)
     test_stdiotest(disk)
     test_test_prog(disk)
+    test_memory_map(disk)
     test_tcc(disk)
     test_tcc_file(disk)
     test_tcc_flat(disk)

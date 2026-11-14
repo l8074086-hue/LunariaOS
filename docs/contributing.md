@@ -1,5 +1,7 @@
 # Contributing to LunariaOS
 
+> **New to the codebase?** The **[Concepts Guide](concepts.md)** walks through the entire architecture (boot, GDT, IDT, paging, syscalls, FS, VGA, shell) with code references. Read it first to understand how pieces fit together.
+
 Thanks for wanting to help! This page covers how the project is organized,
 how to build it, and how to add code without breaking the build.
 

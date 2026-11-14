@@ -283,6 +283,16 @@ static void cmd_free(int argc, char **argv)
     term_print_color(t, buf, v);
     term_print_color(t, " KB free\n", k);
 
+    term_print_color(t, "  e820   ", k);
+    if (memory_e820_mismatches() == 0)
+        term_print_color(t, "bitmap matches BIOS map\n", v);
+    else
+    {
+        itoa((int)memory_e820_mismatches(), buf);
+        term_print_color(t, buf, VGA_COLOR(BLACK, RED));
+        term_print_color(t, " mismatches\n", VGA_COLOR(BLACK, RED));
+    }
+
     term_print_color(t, "  ring3  ", k);
     term_print_color(t, "0x400000-0x800000 on demand, ", l);
     itoa(vm_faults(), buf);

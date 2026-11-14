@@ -1,45 +1,71 @@
 # LunariaOS 
 
-LunariaOS is a x86_32 hobby operating system completely hand-rolled from scratch in C and assembly.
+LunariaOS is a **32-bit x86 hobby operating system** written from scratch in C and assembly. It's a learning project — no code copied from Linux, BSD, or other OSes.
 
-## Features
+**New here? Start with the [Concepts Guide](docs/concepts.md)** — it explains everything from "what is an OS?" to paging, syscalls, and filesystems, assuming zero OS background.
 
-- Custom bootloader
-- Protected mode kernel
-- IDT and interrupt handling
-- Keyboard driver
-- VGA text rendering
-- ATA disk driver 
-- Custom filesystem
-- Shell
-- User programs
-- Basic privilege separation
-- Mirror userspace TUI library
-- `edit` text editor (userspace, built on Mirror)
-- Userspace C library (`malloc`, `string`, `ctype`)
-- File handles (`open`/`read`/`write`/`seek`/`close`/`unlink`)
-- stdio `FILE` layer (`fopen`/`fread`/`fwrite`/`fseek`/`fclose`, `printf`)
-- On-device C compiler — embedded TinyCC core (`run tcc`)
+## What It Does (Features)
 
-## Build
+| Area | What's Implemented |
+|------|-------------------|
+| **Boot** | Custom 512-byte bootloader → protected mode → kernel |
+| **CPU** | GDT (privilege rings), IDT (interrupts), paging (virtual memory) |
+| **Drivers** | Keyboard (IRQ), VGA text (80×25), ATA disk (PIO), PIT timer |
+| **Filesystem** | LUNFS1 — simple flat FS with directories, 16 MB disk image |
+| **Shell** | Interactive prompt, 15+ commands, output redirection (`echo hi > file`) |
+| **User Programs** | Run in Ring 3, demand-paged, own address space per run |
+| **Syscalls** | 17 calls: console, files, heap, screen drawing, exit/reboot |
+| **Userspace Libs** | `malloc`/`free`, `string.h`, `ctype.h`, `stdio.h` (`printf`!), `mirror.h` (TUI) |
+| **Apps** | `edit` (vi-like editor), `paint` (drawing), `mirrordemo` (TUI), `tcc` (C compiler!) |
+| **On-Device Compiler** | TinyCC embedded — `run tcc demo.c` compiles & runs in RAM; `run tcc x.c -o x` writes flat binary |
 
-Requirements:
-- NASM
-- GCC / clang
-- GNU binutils
-- QEMU
+## Quick Start
 
-For GUI run:
-```make
-make run
+### Prerequisites (Linux / WSL / macOS)
+```bash
+# Ubuntu/Debian
+sudo apt install nasm gcc binutils qemu-system-x86
+
+# Fedora
+sudo dnf install nasm gcc binutils qemu
+
+# Arch
+sudo pacman -S nasm gcc binutils qemu-base
 ```
-For QEMU headless run:
-```make
-make headless
+
+### Build & Run
+```bash
+make          # Builds bin/OS.bin and bin/disk.img
+make run      # Boots in QEMU GUI window
+make headless # Boots in terminal (curses) — Ctrl+number keys may not work
 ```
-> [!NOTE ]
-> Note that workspace switching via ctrl + number keys may not work well in headless mode
 
-## Project status
+### First Commands to Try
+```bash
+help          # List all commands
+ls            # List filesystem
+cat hello     # Print a file
+run hello     # Run a user program (prints, writes file, reads key)
+run edit      # Text editor (press ESC for : commands)
+run paint     # Drawing app (arrows, space to draw, [ ] colors, s=save)
+run tcc demo.c fib  # Compile & run C code ON THE OS
+```
 
-This project is entirely experimental and for learning purposes only. It is not yet mature enough for actual real world use cases and will likely not be until Version 1 fully releases.
+## Documentation
+
+| Doc | Audience | What You'll Learn |
+|-----|----------|-------------------|
+| **[Concepts Guide](docs/concepts.md)** | **Beginners** | Every OS concept from zero: boot, rings, paging, syscalls, FS, VGA... |
+| **[Technical Reference](docs/index.md)** | Developers | Dense spec: memory map, GDT/IDT tables, syscall table, disk layout |
+| **[Userspace Guide](docs/userspace.md)** | App writers | How to write C programs for LunariaOS: headers, syscalls, Mirror TUI, libc |
+| **[Contributing](docs/contributing.md)** | Contributors | Build system, code style, adding kernel modules/user programs |
+
+## Project Status
+
+🧪 **Experimental / Learning Project** — Not for production use.  
+Expect bugs, missing features, and breaking changes.  
+See `todo.txt` for planned work (paging improvements, ELF loader, multiprocess, wall clock, etc.).
+
+## License
+
+GPL-3.0 — see [LICENSE](LICENSE). Copyleft applies.
